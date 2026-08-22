@@ -4,6 +4,8 @@
 
 克隆到新设备后一键复现完整环境：**dsh 浏览器桥 + Chrome/Firefox 扩展**、以及 **`web` 配置项（全部插件 bundle + 本地鲸鱼挂件 + 浏览器桥插件）**。
 
+![运行中的 DeepSeek Harness 桌面/Web 界面](screenshot-dsh-ui.png)
+
 仓库结构刻意镜像 `$DSH_HOME`（Windows 默认 `C:\Users\<你>\\.dsh`）的布局，因此相对路径在仓库里和安装后的实际位置都成立：
 
 ```
