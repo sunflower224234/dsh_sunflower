@@ -1,0 +1,1295 @@
+/**
+ * Side panel application: chat with the local dsh agent, plus a settings
+ * view. Renders conversation from session history and live session events;
+ * browser actions are driven by the model through the bridge tools (the panel
+ * only shows tool activity cards).
+ *
+ * @module
+ */
+
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { DEFAULT_SNAPSHOT_MAX_CHARS } from '@yuxianglin/dsh-bridge-browser/src/protocol.ts'
+import type { BridgeCaps } from '@yuxianglin/dsh-bridge-browser/src/protocol.ts'
+import type { ServerFrame } from '@yuxianglin/dsh-bridge-browser/src/protocol.ts'
+import type { BridgeState } from '../background/bridge.ts'
+import type { AffinityTab, TabAffinityDecision, TabAffinityState } from '../background/tab-affinity.ts'
+import { connectPanel, type PanelApi, type PanelSettings } from './api.ts'
+import { renderMarkdown } from './markdown.ts'
+import whaleUrl from '../../assets/icons/deepseek-256.png'
+import type { ApprovalDecision, ApprovalRequest } from '../security/approval.ts'
+import { getUiLocale } from '../i18n.ts'
+import { PANEL_COPY, type PanelCopy } from './strings.ts'
+import { QuestionCard } from './QuestionCard.tsx'
+import { UpdateCard } from './UpdateCard.tsx'
+import { MessageImages } from './MessageImages.tsx'
+import type { QuestionAnswer } from './questions.ts'
+import {
+  hasPendingQuestion,
+  questionReceiptDisposition,
+  removePendingQuestion,
+  upsertPendingQuestion,
+} from './pending-questions.ts'
+import { normalizeTrustedOrigin } from '../security/trusted-origins.ts'
+import { approvalReadyForSession, approvalSessionToFocus } from './approvals.ts'
+import {
+  browserTimeZone,
+  draftImageDataUrl,
+  parseImageAttachmentLimits,
+  prepareImageFiles,
+  promptContent,
+  type DraftImage,
+  type ImageAttachmentLimits,
+} from './attachments.ts'
+import { imageErrorMessage } from './image-errors.ts'
+import {
+  canAcceptImageSelection,
+  emptyComposerDraft,
+  restoreSubmittedDraft,
+  type ComposerDraft,
+} from './composer.ts'
+import {
+  latestSessionTitle,
+  projectedSessionTitle,
+  resumableSessions,
+  sessionAcceptsPrompts,
+  sessionDisplayTitle,
+  sessionResumeCandidates,
+  sessionTitleFromEvent,
+  SessionRuntimeCache,
+  type SessionPickerEntry,
+} from './sessions.ts'
+
+/** One rendered conversation row. */
+import {
+  appendLiveRow,
+  completeLastTool,
+  mergeHistoryRows,
+  pendingQuestionFromFrame,
+  resolvedQuestionFromFrame,
+  rowFromEvent,
+  toolSummary,
+  type Row,
+  type PendingQuestion,
+  type ResolvedQuestion,
+  type SessionEventView,
+} from './events.ts'
+
+function normalizeWebOrigin(value: string): string | null {
+  return normalizeTrustedOrigin(value) ?? null
+}
+
+function SettingsIcon(): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 20 20" aria-hidden="true">
+      <path d="M10 7.35A2.65 2.65 0 1 0 10 12.65 2.65 2.65 0 0 0 10 7.35Z" />
+      <path d="M16.15 11.2a6.4 6.4 0 0 0 0-2.4l1.18-.91-1.5-2.6-1.4.57a6.3 6.3 0 0 0-2.08-1.2L12.15 3h-3l-.2 1.66a6.3 6.3 0 0 0-2.08 1.2l-1.4-.57-1.5 2.6 1.18.91a6.4 6.4 0 0 0 0 2.4l-1.18.91 1.5 2.6 1.4-.57a6.3 6.3 0 0 0 2.08 1.2l.2 1.66h3l.2-1.66a6.3 6.3 0 0 0 2.08-1.2l1.4.57 1.5-2.6-1.18-.91Z" />
+    </svg>
+  )
+}
+
+function PlusIcon(): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 20 20" aria-hidden="true">
+      <path d="M10 4.5v11M4.5 10h11" />
+    </svg>
+  )
+}
+
+function ChevronDownIcon(): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 20 20" aria-hidden="true">
+      <path d="m5.5 7.5 4.5 4.5 4.5-4.5" />
+    </svg>
+  )
+}
+
+function SendIcon(): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 20 20" aria-hidden="true">
+      <path d="M10 15.5v-11M5.5 9 10 4.5 14.5 9" />
+    </svg>
+  )
+}
+
+function AttachmentIcon(): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 20 20" aria-hidden="true">
+      <path d="m7.25 10.75 4.9-4.9a2.3 2.3 0 0 1 3.25 3.25l-6.2 6.2a3.55 3.55 0 1 1-5.02-5.02l6.2-6.2" />
+    </svg>
+  )
+}
+
+function ToolIcon(): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 20 20" aria-hidden="true">
+      <path d="M12.1 3.35a4 4 0 0 0-4.75 5.27l-4.1 4.1a1.85 1.85 0 1 0 2.62 2.62l4.1-4.1a4 4 0 0 0 5.25-4.78l-2.45 2.45-1.9-.5-.5-1.9 2.45-2.45a4 4 0 0 0-.72-.71Z" />
+    </svg>
+  )
+}
+
+function BackIcon(): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 20 20" aria-hidden="true">
+      <path d="m12.5 4.5-5.5 5.5 5.5 5.5" />
+    </svg>
+  )
+}
+
+function ShieldIcon(): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 20 20" aria-hidden="true">
+      <path d="M10 2.5 16 5v4.2c0 3.8-2.45 6.45-6 8.3-3.55-1.85-6-4.5-6-8.3V5l6-2.5Z" />
+      <path d="M10 6.5v4M10 13.5h.01" />
+    </svg>
+  )
+}
+
+function tabLabel(tab: AffinityTab | null, unknownTab: string): string {
+  const title = tab?.title.trim()
+  if (title !== undefined && title !== '') return title
+  try {
+    const hostname = new URL(tab?.url ?? '').hostname
+    return hostname === '' ? unknownTab : hostname
+  } catch {
+    return unknownTab
+  }
+}
+
+function TabAffinityBanner({
+  state,
+  copy,
+  onDecision,
+}: {
+  state: TabAffinityState | null
+  copy: PanelCopy
+  onDecision: (decision: TabAffinityDecision) => void
+}): React.JSX.Element | null {
+  if (state === null || state.status === 'unbound' || state.status === 'following') return null
+  const controlled = tabLabel(state.controlled, copy.tabHandoff.closedTab)
+  const active = tabLabel(state.active, copy.tabHandoff.unknownTab)
+  const lost = state.status === 'lost'
+  const handoff = state.status === 'handoff'
+  const title = lost
+    ? copy.tabHandoff.lostTitle
+    : handoff
+      ? copy.tabHandoff.questionTitle
+      : copy.tabHandoff.backgroundTitle(controlled)
+  const body = lost
+    ? copy.tabHandoff.lostBody
+    : handoff
+      ? copy.tabHandoff.questionBody(controlled, active)
+      : copy.tabHandoff.backgroundBody(active)
+
+  return (
+    <section className={`tab-affinity ${state.status}`} role={handoff || lost ? 'alert' : 'status'}>
+      <div className="tab-affinity-heading">
+        <span className="eyebrow">{copy.tabHandoff.eyebrow}</span>
+        <strong>{title}</strong>
+      </div>
+      <div className="tab-affinity-route" aria-hidden="true">
+        <span className={`tab-affinity-node ${lost ? 'closed' : 'controlled'}`}>
+          <small>{copy.tabHandoff.assistant}</small>
+          <span title={controlled}>{controlled}</span>
+        </span>
+        <span className="tab-affinity-arrow">→</span>
+        <span className="tab-affinity-node active">
+          <small>{copy.tabHandoff.you}</small>
+          <span title={active}>{active}</span>
+        </span>
+      </div>
+      <p>{body}</p>
+      <div className="tab-affinity-actions">
+        {handoff && <button className="keep" onClick={() => onDecision('keep')}>{copy.tabHandoff.keep}</button>}
+        {state.active !== null && (
+          <button className="follow" onClick={() => onDecision('follow')}>
+            {lost ? copy.tabHandoff.useCurrent : handoff ? copy.tabHandoff.follow : copy.tabHandoff.followCurrent}
+          </button>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function ApprovalDialog({
+  request,
+  onDecision,
+  copy,
+}: {
+  request: ApprovalRequest
+  onDecision: (decision: ApprovalDecision) => void
+  copy: PanelCopy
+}): React.JSX.Element {
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onDecision('deny')
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => { window.removeEventListener('keydown', onKeyDown) }
+  }, [request.id, onDecision])
+
+  return (
+    <div className="approval-backdrop">
+      <section className="approval-dialog" role="alertdialog" aria-modal="true" aria-labelledby="approval-title">
+        <div className="approval-rail" aria-hidden="true" />
+        <div className="approval-heading">
+          <span className="approval-shield"><ShieldIcon /></span>
+          <div>
+            <span className="eyebrow">{copy.approval.eyebrow}</span>
+            <h2 id="approval-title">{request.kind === 'read' ? copy.approval.readTitle : copy.approval.actionTitle}</h2>
+          </div>
+        </div>
+        <div className="approval-detail">
+          <span>{copy.approval.request}</span>
+          <strong>{request.summary}</strong>
+        </div>
+        <div className="approval-origins">
+          <span>{copy.approval.origins}</span>
+          {request.origins.length === 0
+            ? <code className="unknown">{copy.approval.unknownOrigin}</code>
+            : request.origins.map((origin) => <code key={origin}>{origin}</code>)}
+        </div>
+        <div className="approval-actions">
+          <button className="deny" autoFocus onClick={() => onDecision('deny')}>{copy.approval.deny}</button>
+          <button className="allow" onClick={() => onDecision('allow-once')}>{copy.approval.allowOnce}</button>
+          {request.kind === 'read' && (
+            <button className="read-always" onClick={() => onDecision('always-allow-reads')}>{copy.approval.alwaysAllowReads}</button>
+          )}
+          {request.kind === 'action' && request.canTrust && request.origins.length === 1 && (
+            <button className="session-trust" onClick={() => onDecision('trust-session')}>{copy.approval.trustSession}</button>
+          )}
+        </div>
+        <small className="approval-footnote">
+          {request.kind === 'read'
+            ? copy.approval.readFootnote
+            : copy.approval.actionFootnote}
+        </small>
+      </section>
+    </div>
+  )
+}
+
+/**
+ * One conversation row body. Memoized: rows are immutable (append/merge copy
+ * the array but reuse row objects), so markdown is re-parsed only when a
+ * row's text actually changes — typing must not re-render every message.
+ */
+const MessageBody = memo(function MessageBody({
+  row,
+  sessionId,
+  api,
+  copy,
+}: {
+  row: Row
+  sessionId: string
+  api: PanelApi
+  copy: PanelCopy
+}): React.JSX.Element {
+  if (row.kind === 'user' || row.kind === 'assistant') {
+    return (
+      <div className="body message-body md">
+        <MessageImages
+          images={row.images ?? []}
+          sessionId={sessionId}
+          api={api}
+          align={row.kind === 'user' ? 'end' : 'start'}
+          copy={copy}
+        />
+        {row.text.trim() !== '' && <div className="md" dangerouslySetInnerHTML={{ __html: renderMarkdown(row.text) }} />}
+      </div>
+    )
+  }
+  return <pre>{row.text}</pre>
+})
+
+interface HistoryPage {
+  events: { event: SessionEventView }[]
+  projections?: {
+    asOfSeq: number
+    values: Record<string, unknown>
+  }
+}
+
+const ToolActivity = memo(function ToolActivity({ row, copy }: { row: Row; copy: PanelCopy }): React.JSX.Element {
+  const running = row.status === 'running'
+  return (
+    <div className={`tool-activity ${running ? 'running' : 'complete'}`} role="status">
+      <span className="tool-icon"><ToolIcon /></span>
+      <span className="tool-copy">
+        <span className="tool-label">{running ? copy.tool.running : copy.tool.complete}</span>
+        <span className="tool-summary">{row.text}</span>
+      </span>
+      <span className="tool-state" aria-label={running ? copy.tool.inProgress : copy.tool.completed}>
+        {running ? <span className="spinner" /> : copy.tool.done}
+      </span>
+    </div>
+  )
+})
+
+export function App(): React.JSX.Element {
+  const locale = useMemo(() => getUiLocale(), [])
+  const copy = PANEL_COPY[locale]
+  const [api] = useState<PanelApi>(() => connectPanel())
+  const [state, setState] = useState<BridgeState>('stopped')
+  const [caps, setCaps] = useState<BridgeCaps | null>(null)
+  const [settings, setSettings] = useState<PanelSettings | null>(null)
+  const [rows, setRows] = useState<Row[]>([])
+  const [draft, setDraft] = useState<ComposerDraft<DraftImage>>(() => emptyComposerDraft())
+  const input = draft.text
+  const draftImages = draft.images
+  const [imageLimits, setImageLimits] = useState<ImageAttachmentLimits | null>(null)
+  const [addingImages, setAddingImages] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [working, setWorking] = useState(false)
+  const [stopping, setStopping] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
+  const [approvalQueue, setApprovalQueue] = useState<ApprovalRequest[]>([])
+  const [tabAffinity, setTabAffinity] = useState<TabAffinityState | null>(null)
+  const [trustedOriginInput, setTrustedOriginInput] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [showSessionPicker, setShowSessionPicker] = useState(false)
+  const [loadingSessions, setLoadingSessions] = useState(false)
+  const [sessionChanging, setSessionChanging] = useState(false)
+  const [sessionList, setSessionList] = useState<SessionPickerEntry[]>([])
+  const [sessionTitle, setSessionTitle] = useState<string | null>(null)
+  const [resumeHint, setResumeHint] = useState<{ ready: boolean; sessionId: string | null }>({ ready: false, sessionId: null })
+  const [questions, setQuestions] = useState<PendingQuestion[]>([])
+  const [questionSubmissions, setQuestionSubmissions] = useState<ResolvedQuestion[]>([])
+  const approvalQueueRef = useRef<ApprovalRequest[]>([])
+  const questionsRef = useRef<PendingQuestion[]>([])
+  const questionSubmissionsRef = useRef<ResolvedQuestion[]>([])
+  const stoppingRef = useRef(false)
+  const addingImagesRef = useRef(false)
+  const sendingRef = useRef(false)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const imageProjectionRef = useRef<{
+    sessionId: string | null
+    seq: number
+    limits: ImageAttachmentLimits | null
+  }>({ sessionId: null, seq: Number.NEGATIVE_INFINITY, limits: null })
+  const sessionChangingRef = useRef(false)
+  const sessionTransitionRef = useRef(0)
+  const sessionInitializationRef = useRef(false)
+  const sessionRuntimeRef = useRef(new SessionRuntimeCache())
+  const seqRef = useRef(0)
+  const sessionRef = useRef<string | null>(null)
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+
+  const nextSeq = (): number => { seqRef.current += 1; return seqRef.current }
+  const question = questions[0] ?? null
+  const questionSubmitting = question !== null && hasPendingQuestion(questionSubmissions, question)
+  const sessionSwitchBlocked = sessionChanging || busy || addingImages || working || stopping
+    || questions.length > 0 || approvalQueue.length > 0
+  const sessionReady = sessionAcceptsPrompts(
+    state === 'connected',
+    sessionChanging,
+    sessionRef.current,
+  )
+
+  function replaceQuestions(next: PendingQuestion[]): void {
+    questionsRef.current = next
+    setQuestions(next)
+  }
+
+  function updateApprovalQueue(update: (current: ApprovalRequest[]) => ApprovalRequest[]): void {
+    setApprovalQueue((current) => {
+      const next = update(current)
+      approvalQueueRef.current = next
+      return next
+    })
+  }
+
+  function removeQuestion(target: ResolvedQuestion): void {
+    sessionRuntimeRef.current.resolveQuestion(target)
+    replaceQuestions(removePendingQuestion(questionsRef.current, target))
+    setQuestionBusy(target, false)
+  }
+
+  function clearQuestions(): void {
+    replaceQuestions([])
+    questionSubmissionsRef.current = []
+    setQuestionSubmissions([])
+  }
+
+  function setQuestionBusy(target: PendingQuestion | ResolvedQuestion, next: boolean): void {
+    const current = questionSubmissionsRef.current
+    const updated = next
+      ? hasPendingQuestion(current, target)
+        ? current
+        : [...current, { sessionId: target.sessionId, rpcId: target.rpcId }]
+      : removePendingQuestion(current, target)
+    questionSubmissionsRef.current = updated
+    setQuestionSubmissions(updated)
+  }
+
+  // Settings: seed from storage, then let the panel own the form.
+  useEffect(() => {
+    void chrome.storage.local.get('dshSettings').then((stored) => {
+      const raw = stored.dshSettings as Partial<PanelSettings> | undefined
+      setSettings({
+        bridgeUrl: raw?.bridgeUrl ?? '',
+        token: raw?.token ?? '',
+        sharePageContent: raw?.sharePageContent ?? 'auto',
+        trustedActionOrigins: raw?.trustedActionOrigins ?? [],
+        approvalNotifications: raw?.approvalNotifications ?? true,
+        autoResumeSession: raw?.autoResumeSession ?? true,
+      })
+    })
+  }, [])
+
+  // 每次连接重启（设置变更/断线重连）都新建会话。状态消息逐条监听：
+  // React 会把 stopped/connecting 等瞬时状态合并进同一帧渲染，依赖渲染
+  // 状态无法可靠观察到"连接已重置"，因此在这里按消息粒度判定。
+  const [sessionEpoch, setSessionEpoch] = useState(0)
+  const lastStateRef = useRef<BridgeState | null>(null)
+  useEffect(() => {
+    const offStatus = api.onStatus((next, nextCaps) => {
+      setState(next)
+      setCaps(nextCaps)
+      const previous = lastStateRef.current
+      lastStateRef.current = next
+      if (previous !== null && next !== previous && next === 'stopped') {
+        sessionTransitionRef.current += 1
+        sessionInitializationRef.current = false
+        sessionChangingRef.current = false
+        sessionRef.current = null
+        sessionRuntimeRef.current.clear()
+        setRows([])
+        setDraft((current) => ({ ...current, images: [] }))
+        setImageLimits(null)
+        imageProjectionRef.current = { sessionId: null, seq: Number.NEGATIVE_INFINITY, limits: null }
+        setSessionTitle(null)
+        setWorking(false)
+        setStopping(false)
+        setSessionChanging(false)
+        setShowSessionPicker(false)
+        stoppingRef.current = false
+        clearQuestions()
+        setSessionEpoch((epoch) => epoch + 1)
+      }
+    })
+    const offEvent = api.onEvent((frame) => { void onFrame(frame) })
+    const offApproval = api.onApprovalRequest((request) => {
+      updateApprovalQueue((current) => current.some((entry) => entry.id === request.id) ? current : [...current, request])
+    })
+    const offApprovalResolved = api.onApprovalResolved((id) => {
+      updateApprovalQueue((current) => current.filter((request) => request.id !== id))
+    })
+    const offTabAffinity = api.onTabAffinity(setTabAffinity)
+    const offResumeHint = api.onSessionResumeHint((sessionId) => {
+      setResumeHint({ ready: true, sessionId })
+    })
+    void api.requestStatus().catch((cause: unknown) => {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    })
+    return () => { offStatus(); offEvent(); offApproval(); offApprovalResolved(); offTabAffinity(); offResumeHint() }
+  }, [api])
+
+  useEffect(() => {
+    if (state === 'connected' && settings !== null && resumeHint.ready && sessionRef.current === null) {
+      void initializeSession()
+    }
+  }, [state, sessionEpoch, settings, resumeHint])
+
+  const queuedApproval = approvalQueue[0]
+  useEffect(() => {
+    const sessionId = approvalSessionToFocus(
+      queuedApproval,
+      sessionRef.current,
+      sessionChangingRef.current,
+      state === 'connected',
+    )
+    if (sessionId !== undefined && queuedApproval !== undefined) void focusApprovalSession(queuedApproval)
+  }, [queuedApproval?.id, queuedApproval?.sessionId, sessionChanging, state])
+
+  // Auto-scroll to the newest row.
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
+  }, [rows, working])
+
+  function applyImageProjection(sessionId: string, seq: number, value: unknown): void {
+    if (sessionRef.current !== sessionId || !Number.isSafeInteger(seq)) return
+    const previous = imageProjectionRef.current
+    if (previous.sessionId === sessionId && seq <= previous.seq) return
+    const limits = parseImageAttachmentLimits(value)
+    imageProjectionRef.current = { sessionId, seq, limits }
+    setImageLimits(limits)
+  }
+
+  function applyHistoryImageProjection(sessionId: string, projections: HistoryPage['projections']): void {
+    if (projections === undefined) {
+      applyImageProjection(sessionId, -1, undefined)
+      return
+    }
+    const values = projections.values
+    applyImageProjection(
+      sessionId,
+      projections.asOfSeq,
+      typeof values === 'object' && values !== null ? values.imageLimits : undefined,
+    )
+  }
+
+  /** Live frame handling: session events append rows; turn/end reconciles with history. */
+  async function onFrame(frame: ServerFrame): Promise<void> {
+    if (frame.t !== 'event') return
+    const pendingQuestion = pendingQuestionFromFrame(frame.frame)
+    if (pendingQuestion !== null) {
+      sessionRuntimeRef.current.rememberQuestion(pendingQuestion)
+      if (pendingQuestion.sessionId === sessionRef.current) {
+        const wasEmpty = questionsRef.current.length === 0
+        replaceQuestions(upsertPendingQuestion(questionsRef.current, pendingQuestion))
+        if (wasEmpty) setError(null)
+      }
+      return
+    }
+    const resolvedQuestion = resolvedQuestionFromFrame(frame.frame)
+    if (resolvedQuestion !== null) {
+      removeQuestion(resolvedQuestion)
+      return
+    }
+    if (frame.frame.method === 'session/projection'
+      && typeof frame.frame.payload === 'object'
+      && frame.frame.payload !== null) {
+      const projection = frame.frame.payload as {
+        sessionId?: unknown
+        key?: unknown
+        value?: unknown
+        seq?: unknown
+      }
+      if (typeof projection.sessionId === 'string'
+        && projection.key === 'imageLimits'
+        && typeof projection.seq === 'number') {
+        applyImageProjection(projection.sessionId, projection.seq, projection.value)
+      }
+      return
+    }
+    const payload = frame.frame.payload as { sessionId?: string; event?: SessionEventView } | undefined
+    if (payload?.sessionId === undefined || payload.event === undefined) return
+    const nextTitle = sessionTitleFromEvent(payload.event)
+    if (nextTitle !== undefined && payload.sessionId === sessionRef.current) {
+      setSessionTitle(nextTitle)
+      return
+    }
+    if (payload.event.type === 'turn/start') {
+      sessionRuntimeRef.current.startTurn(payload.sessionId)
+      if (payload.sessionId !== sessionRef.current) return
+      stoppingRef.current = false
+      setStopping(false)
+      setWorking(true)
+      return
+    }
+    if (payload.event.type === 'turn/end') {
+      sessionRuntimeRef.current.finishTurn(payload.sessionId)
+      if (payload.sessionId !== sessionRef.current) return
+      stoppingRef.current = false
+      setStopping(false)
+      setWorking(false)
+      clearQuestions()
+      await refreshHistory(payload.sessionId)
+      return
+    }
+    if (payload.sessionId !== sessionRef.current) return
+    const row = rowFromEvent(payload.event)
+    if (row !== null) {
+      setRows((prev) => appendLiveRow(prev, row.kind, row.text, nextSeq(), row.images))
+      return
+    }
+    if (payload.event.type === 'tool/call') {
+      setWorking(true)
+      const summary = toolSummary(payload.event.data?.name ?? 'tool', payload.event.data?.arguments, locale)
+      setRows((prev) => appendLiveRow(prev, 'tool', summary, nextSeq()))
+      return
+    }
+    if (payload.event.type === 'tool/result') {
+      // 并入最后一行工具行：调用已完成（不新增行）。
+      setRows((prev) => completeLastTool(prev, nextSeq()))
+      return
+    }
+  }
+
+  async function answerQuestion(target: PendingQuestion, answers: QuestionAnswer[]): Promise<void> {
+    if (hasPendingQuestion(questionSubmissionsRef.current, target)
+      || !hasPendingQuestion(questionsRef.current, target)) return
+    setQuestionBusy(target, true)
+    setError(null)
+    try {
+      const receipt = await api.respond(target.rpcId, {
+        ok: true,
+        value: { sessionId: target.sessionId, answer: { answers } },
+      })
+      settleQuestionReceipt(target, receipt)
+    } catch (cause) {
+      if (hasPendingQuestion(questionsRef.current, target)) {
+        setError(cause instanceof Error ? cause.message : String(cause))
+      }
+      setQuestionBusy(target, false)
+    }
+  }
+
+  async function dismissQuestion(target: PendingQuestion): Promise<void> {
+    if (hasPendingQuestion(questionSubmissionsRef.current, target)
+      || !hasPendingQuestion(questionsRef.current, target)) return
+    setQuestionBusy(target, true)
+    setError(null)
+    try {
+      const receipt = await api.respond(target.rpcId, {
+        ok: false,
+        error: { code: 'cancelled', message: 'the user dismissed this question request', details: {} },
+      })
+      settleQuestionReceipt(target, receipt)
+    } catch (cause) {
+      if (hasPendingQuestion(questionsRef.current, target)) {
+        setError(cause instanceof Error ? cause.message : String(cause))
+      }
+      setQuestionBusy(target, false)
+    }
+  }
+
+  function settleQuestionReceipt(target: PendingQuestion, receipt: unknown): void {
+    const disposition = questionReceiptDisposition(receipt)
+    if (disposition === 'accepted') {
+      removeQuestion(target)
+      return
+    }
+    if (disposition === 'not-pending') {
+      setError(copy.question.alreadyAnswered)
+      removeQuestion(target)
+      return
+    }
+    setError(copy.question.answerRejected)
+    setQuestionBusy(target, false)
+  }
+
+  async function readHistory(id: string): Promise<HistoryPage> {
+    return api.rpc<HistoryPage>('session.history', { sessionId: id })
+  }
+
+  function applyHistory(id: string, history: HistoryPage): void {
+    if (sessionRef.current !== id) return
+    const events = history.events.map((entry) => entry.event)
+    applyHistoryImageProjection(id, history.projections)
+    const historyTitle = latestSessionTitle(events)
+    if (historyTitle !== undefined) setSessionTitle(historyTitle)
+    setRows(mergeHistoryRows(events, nextSeq, locale))
+  }
+
+  async function refreshHistory(requestedId: string | null = sessionRef.current): Promise<void> {
+    const id = requestedId
+    if (id === null) return
+    try {
+      applyHistory(id, await readHistory(id))
+    } catch (cause) {
+      if (sessionRef.current === id) setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  async function createSession(transition: number): Promise<void> {
+    const created = await api.rpc<{ sessionId: string }>('session.create', {})
+    if (sessionTransitionRef.current !== transition) return
+    sessionRef.current = created.sessionId
+    await api.setActiveSession(created.sessionId)
+    setSessionTitle(null)
+    sessionRuntimeRef.current.seedRunning(created.sessionId, false)
+    applyHistory(created.sessionId, await readHistory(created.sessionId))
+  }
+
+  /** Restore the last browser conversation, then the latest durable one, before creating a chat. */
+  async function initializeSession(): Promise<void> {
+    if (sessionInitializationRef.current || sessionChangingRef.current || sessionRef.current !== null) return
+    sessionInitializationRef.current = true
+    const transition = beginSessionTransition()
+    try {
+      if (settings?.autoResumeSession === true) {
+        let entries: SessionPickerEntry[] = []
+        try {
+          const listed = await api.rpc<{ items: SessionPickerEntry[] }>('session.list', {})
+          entries = resumableSessions(listed.items ?? [])
+        } catch {
+          // The direct resume hint may still identify a live provisional session.
+        }
+        const hinted = resumeHint.sessionId
+        const candidates = sessionResumeCandidates(hinted, entries)
+        for (const id of candidates) {
+          try {
+            const history = await readHistory(id)
+            if (sessionTransitionRef.current !== transition) return
+            const entry = entries.find((candidate) => candidate.sessionId === id)
+            const runtime = sessionRuntimeRef.current.snapshot(id, entry?.running ?? false)
+            prepareSessionSwitch(runtime.running, runtime.questions)
+            sessionRef.current = id
+            await api.setActiveSession(id)
+            setSessionTitle(entry === undefined ? null : projectedSessionTitle(entry) ?? sessionDisplayTitle(entry))
+            applyHistory(id, history)
+            return
+          } catch {
+            // Stale hints are expected after a bridge restart; try the next durable session.
+          }
+        }
+      }
+      await createSession(transition)
+    } catch (cause) {
+      if (sessionTransitionRef.current === transition) {
+        setError(cause instanceof Error ? cause.message : String(cause))
+      }
+    } finally {
+      sessionInitializationRef.current = false
+      finishSessionTransition(transition)
+    }
+  }
+
+  /** 打开历史会话选择器：拉取持久化会话列表（已过滤空白会话），供恢复。 */
+  async function openSessionPicker(): Promise<void> {
+    if (showSessionPicker) {
+      setShowSessionPicker(false)
+      return
+    }
+    if (state !== 'connected' || sessionSwitchBlocked || sessionChangingRef.current) return
+    setShowSessionPicker(true)
+    setLoadingSessions(true)
+    try {
+      const result = await api.rpc<{ items: SessionPickerEntry[] }>('session.list', {})
+      for (const entry of result.items ?? []) {
+        sessionRuntimeRef.current.seedRunning(entry.sessionId, entry.running)
+      }
+      const items = resumableSessions(result.items ?? [])
+      const current = items.find((entry) => entry.sessionId === sessionRef.current)
+      const currentTitle = current === undefined ? undefined : projectedSessionTitle(current)
+      if (currentTitle !== undefined) setSessionTitle(currentTitle)
+      setSessionList(items)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setLoadingSessions(false)
+    }
+  }
+
+  /** 恢复历史会话：切换当前 session 并加载其历史。 */
+  async function resumeSession(entry: SessionPickerEntry): Promise<void> {
+    if (sessionSwitchBlocked || sessionChangingRef.current) return
+    const transition = beginSessionTransition()
+    try {
+      await api.setActiveSession(entry.sessionId)
+      if (sessionTransitionRef.current !== transition) return
+      const runtime = sessionRuntimeRef.current.snapshot(entry.sessionId, entry.running)
+      prepareSessionSwitch(runtime.running, runtime.questions)
+      sessionRef.current = entry.sessionId
+      setSessionTitle(projectedSessionTitle(entry) ?? sessionDisplayTitle(entry))
+      await refreshHistory(entry.sessionId)
+    } catch (cause) {
+      if (sessionTransitionRef.current === transition) {
+        setError(cause instanceof Error ? cause.message : String(cause))
+      }
+    } finally {
+      finishSessionTransition(transition)
+    }
+  }
+
+  /** Load the session that owns an approval before exposing its decision UI. */
+  async function focusApprovalSession(request: ApprovalRequest): Promise<void> {
+    const sessionId = request.sessionId
+    if (sessionId === undefined || sessionChangingRef.current || sessionRef.current === sessionId) return
+    const transition = beginSessionTransition()
+    let history: HistoryPage | undefined
+    let historyError: unknown
+    try {
+      try {
+        history = await readHistory(sessionId)
+      } catch (cause) {
+        historyError = cause
+      }
+      if (sessionTransitionRef.current !== transition
+        || !approvalQueueRef.current.some((entry) => entry.id === request.id)) return
+      const runtime = sessionRuntimeRef.current.snapshot(sessionId)
+      prepareSessionSwitch(runtime.running, runtime.questions)
+      sessionRef.current = sessionId
+      await api.setActiveSession(sessionId)
+      setSessionTitle(sessionId)
+      if (history !== undefined) applyHistory(sessionId, history)
+      else setError(historyError instanceof Error ? historyError.message : String(historyError))
+    } finally {
+      finishSessionTransition(transition)
+    }
+  }
+
+  /** 新建会话：后台确认重绑当前标签页后，再丢弃当前会话并创建新会话。 */
+  async function startNewSession(): Promise<void> {
+    if (sessionSwitchBlocked || sessionChangingRef.current) return
+    const transition = beginSessionTransition()
+    try {
+      await api.rebindTabAffinity()
+      if (sessionTransitionRef.current !== transition) return
+      sessionRef.current = null
+      setSessionTitle(null)
+      prepareSessionSwitch(false)
+      await createSession(transition)
+    } catch (cause) {
+      if (sessionTransitionRef.current === transition) {
+        setError(cause instanceof Error ? cause.message : String(cause))
+      }
+    } finally {
+      finishSessionTransition(transition)
+    }
+  }
+
+  function beginSessionTransition(): number {
+    sessionChangingRef.current = true
+    setSessionChanging(true)
+    sessionTransitionRef.current += 1
+    return sessionTransitionRef.current
+  }
+
+  function finishSessionTransition(transition: number): void {
+    if (sessionTransitionRef.current !== transition) return
+    sessionChangingRef.current = false
+    setSessionChanging(false)
+  }
+
+  function prepareSessionSwitch(nextWorking: boolean, nextQuestions: PendingQuestion[] = []): void {
+    setRows([])
+    setDraft(emptyComposerDraft())
+    setImageLimits(null)
+    imageProjectionRef.current = { sessionId: null, seq: Number.NEGATIVE_INFINITY, limits: null }
+    setWorking(nextWorking)
+    setStopping(false)
+    stoppingRef.current = false
+    replaceQuestions(nextQuestions)
+    questionSubmissionsRef.current = []
+    setQuestionSubmissions([])
+    setError(null)
+    setShowSessionPicker(false)
+  }
+
+  async function addImageFiles(files: readonly File[]): Promise<void> {
+    const limits = imageLimits
+    const sessionId = sessionRef.current
+    if (files.length === 0 || limits === null || sessionId === null
+      || !canAcceptImageSelection(addingImagesRef.current, sendingRef.current)) return
+    addingImagesRef.current = true
+    setAddingImages(true)
+    setError(null)
+    const existing = draftImages
+    try {
+      const prepared = await prepareImageFiles(files, existing, limits)
+      if (sessionRef.current === sessionId) {
+        setDraft((current) => ({ ...current, images: [...current.images, ...prepared] }))
+      }
+    } catch (cause) {
+      if (sessionRef.current === sessionId) setError(imageErrorMessage(cause, copy, limits))
+    } finally {
+      addingImagesRef.current = false
+      setAddingImages(false)
+    }
+  }
+
+  async function send(textOverride?: string): Promise<void> {
+    const text = (textOverride ?? input).trim()
+    const submittedImages = textOverride === undefined ? draftImages : []
+    const id = sessionRef.current
+    // busy state 是异步的：连续回车可能都通过 state 检查——用 ref 同步锁。
+    if ((text === '' && submittedImages.length === 0)
+      || busy || addingImagesRef.current || sendingRef.current || sessionChangingRef.current || id === null) return
+    sendingRef.current = true
+    const submittedDraft: ComposerDraft<DraftImage> = { text, images: submittedImages }
+    if (textOverride === undefined) {
+      setDraft(emptyComposerDraft())
+    }
+    setBusy(true)
+    setWorking(true)
+    setError(null)
+    // 不渲染乐观行：live user/message 事件即时回显，避免同一消息出现两行。
+    try {
+      const clientTimeZone = browserTimeZone()
+      await api.rpc('session.prompt', {
+        sessionId: id,
+        mode: 'queue',
+        content: promptContent(text, submittedImages),
+        ...(clientTimeZone === undefined ? {} : { clientTimeZone }),
+      })
+    } catch (cause) {
+      if (sessionRef.current === id) {
+        setError(imageErrorMessage(cause, copy, imageLimits ?? undefined))
+        setWorking(false)
+        if (textOverride === undefined) {
+          setDraft((current) => restoreSubmittedDraft(current, submittedDraft))
+        }
+      }
+    } finally {
+      setBusy(false)
+      sendingRef.current = false
+    }
+  }
+
+  /** Cancel the active turn while keeping the sidebar session available. */
+  async function stopTurn(): Promise<void> {
+    const id = sessionRef.current
+    if (id === null || stoppingRef.current || sessionChangingRef.current) return
+    stoppingRef.current = true
+    setStopping(true)
+    setError(null)
+    try {
+      await api.rpc('session.cancel', { sessionId: id })
+      if (sessionRef.current === id) {
+        sessionRuntimeRef.current.finishTurn(id)
+        setWorking(false)
+        clearQuestions()
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      stoppingRef.current = false
+      setStopping(false)
+    }
+  }
+
+  async function saveSettings(): Promise<void> {
+    if (settings === null) return
+    try {
+      await api.updateSettings(settings)
+      setShowSettings(false)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  async function decideApproval(decision: ApprovalDecision): Promise<void> {
+    const request = approvalQueue[0]
+    if (request === undefined) return
+    try {
+      await api.respondToApproval(request.id, decision)
+      if (decision === 'always-allow-reads') {
+        setSettings((current) => current === null ? current : { ...current, sharePageContent: 'auto' })
+      }
+      updateApprovalQueue((current) => current.filter((entry) => entry.id !== request.id))
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  async function decideTabAffinity(decision: TabAffinityDecision): Promise<void> {
+    if (tabAffinity === null) return
+    try {
+      await api.resolveTabAffinity(tabAffinity.revision, decision, sessionRef.current)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  function addTrustedOrigin(): void {
+    const origin = normalizeWebOrigin(trustedOriginInput)
+    if (origin === null) return
+    setSettings((current) => current === null
+      ? current
+      : { ...current, trustedActionOrigins: [...new Set([...current.trustedActionOrigins, origin])].sort() })
+    setTrustedOriginInput('')
+  }
+
+  function removeTrustedOrigin(origin: string): void {
+    setSettings((current) => current === null
+      ? current
+      : { ...current, trustedActionOrigins: current.trustedActionOrigins.filter((candidate) => candidate !== origin) })
+  }
+
+  // 状态栏只显示连接状态；快照上限是技术细节，在设置页说明（见 hint）。
+  const statusText = copy.status[state]
+  const sessionMenuTitle = sessionTitle ?? copy.app.newSession
+  const approvalDialog = !approvalReadyForSession(queuedApproval, sessionRef.current, sessionChanging)
+    ? null
+    : <ApprovalDialog request={queuedApproval!} onDecision={decideApproval} copy={copy} />
+
+  if (showSettings) {
+    return (
+      <><div className="settings">
+        <div className="settings-heading">
+          <button className="icon-button" onClick={() => setShowSettings(false)} aria-label={copy.settings.back}><BackIcon /></button>
+          <div>
+            <span className="eyebrow">{copy.settings.eyebrow}</span>
+            <h1>{copy.settings.title}</h1>
+          </div>
+        </div>
+        <UpdateCard copy={copy.update} />
+        <div className="settings-panel">
+          <label>
+            <span>{copy.settings.bridgeAddress}</span>
+            <small>{copy.settings.bridgeHelp}</small>
+            <input
+              value={settings?.bridgeUrl ?? ''}
+              onChange={(e) => setSettings((prev) => prev === null ? prev : { ...prev, bridgeUrl: e.target.value })}
+              placeholder={copy.settings.bridgePlaceholder}
+            />
+          </label>
+          <label>
+            <span>Token</span>
+            <small>{copy.settings.tokenHelp}</small>
+            <input
+              type="password"
+              value={settings?.token ?? ''}
+              onChange={(e) => setSettings((prev) => prev === null ? prev : { ...prev, token: e.target.value })}
+              placeholder={copy.settings.tokenPlaceholder}
+            />
+          </label>
+          <label>
+            <span>{copy.settings.pageSharing}</span>
+            <small>{copy.settings.pageSharingHelp}</small>
+            <select
+              value={settings?.sharePageContent ?? 'auto'}
+              onChange={(e) => setSettings((prev) => prev === null ? prev : { ...prev, sharePageContent: e.target.value as PanelSettings['sharePageContent'] })}
+            >
+              <option value="auto">{copy.settings.sharingAuto}</option>
+              <option value="ask">{copy.settings.sharingAsk}</option>
+              <option value="off">{copy.settings.sharingOff}</option>
+            </select>
+          </label>
+        </div>
+        <div className="settings-panel preference-toggles">
+          <label className="setting-toggle">
+            <span className="setting-toggle-copy">
+              <strong>{copy.settings.approvalNotifications}</strong>
+              <small>{copy.settings.approvalNotificationsHelp}</small>
+            </span>
+            <input
+              className="setting-toggle-input"
+              type="checkbox"
+              checked={settings?.approvalNotifications ?? true}
+              onChange={(event) => setSettings((current) => current === null
+                ? current
+                : { ...current, approvalNotifications: event.target.checked })}
+            />
+            <span className="setting-toggle-control" aria-hidden="true"><span /></span>
+          </label>
+          <label className="setting-toggle">
+            <span className="setting-toggle-copy">
+              <strong>{copy.settings.autoResumeSession}</strong>
+              <small>{copy.settings.autoResumeSessionHelp}</small>
+            </span>
+            <input
+              className="setting-toggle-input"
+              type="checkbox"
+              checked={settings?.autoResumeSession ?? true}
+              onChange={(event) => setSettings((current) => current === null
+                ? current
+                : { ...current, autoResumeSession: event.target.checked })}
+            />
+            <span className="setting-toggle-control" aria-hidden="true"><span /></span>
+          </label>
+        </div>
+        <section className="trusted-origins" aria-labelledby="trusted-origins-title">
+          <div>
+            <span id="trusted-origins-title">{copy.settings.trustedOrigins}</span>
+            <small>{copy.settings.trustedOriginsHelp}</small>
+          </div>
+          <div className="trusted-origin-add">
+            <input
+              aria-label={copy.settings.trustedOriginInput}
+              value={trustedOriginInput}
+              onChange={(event) => setTrustedOriginInput(event.target.value)}
+              onKeyDown={(event) => { if (event.key === 'Enter') addTrustedOrigin() }}
+              placeholder="https://example.com / https://*.example.com"
+            />
+            <button disabled={normalizeWebOrigin(trustedOriginInput) === null} onClick={addTrustedOrigin}>{copy.settings.add}</button>
+          </div>
+          {trustedOriginInput.trim() !== '' && normalizeWebOrigin(trustedOriginInput) === null && (
+            <p className="origin-error">{copy.settings.invalidOrigin}</p>
+          )}
+          {settings?.trustedActionOrigins.length === 0 && <p>{copy.settings.noTrustedOrigins}</p>}
+          {settings?.trustedActionOrigins.map((origin) => (
+            <div className="trusted-origin" key={origin}>
+              <code>{origin}</code>
+              <button onClick={() => removeTrustedOrigin(origin)} aria-label={copy.settings.removeOrigin(origin)}>{copy.settings.remove}</button>
+            </div>
+          ))}
+        </section>
+        <div className="settings-actions">
+          <button className="primary" onClick={saveSettings}>{copy.settings.save}</button>
+          <button className="secondary" onClick={() => setShowSettings(false)}>{copy.settings.cancel}</button>
+        </div>
+        <p className="hint">{copy.settings.snapshotHint(caps?.snapshotMaxChars ?? DEFAULT_SNAPSHOT_MAX_CHARS)}</p>
+      </div>{approvalDialog}</>
+    )
+  }
+
+  return (
+    <><div className="app">
+      <header className="topbar">
+        <span className="connection" role="status">
+          <span className={`dot ${state}`} />
+          <span className="connection-label">{statusText}</span>
+        </span>
+        <button className="session-menu-trigger" disabled={state !== 'connected' || sessionSwitchBlocked}
+          aria-expanded={showSessionPicker} aria-label={copy.app.openSessions}
+          onClick={() => { void openSessionPicker() }} title={sessionMenuTitle}>
+          <span>{sessionMenuTitle}</span>
+          <ChevronDownIcon />
+        </button>
+        <div className="topbar-actions">
+          <button className="icon-button new-session-trigger" disabled={state !== 'connected' || sessionSwitchBlocked}
+            onClick={() => { void startNewSession() }}
+            aria-label={copy.app.newSession} title={copy.app.newSession}>
+            <PlusIcon />
+          </button>
+          <button className="icon-button settings-trigger" onClick={() => setShowSettings(true)}
+            aria-label={copy.app.openSettings} title={copy.app.settings}><SettingsIcon /></button>
+        </div>
+      </header>
+      <TabAffinityBanner state={tabAffinity} copy={copy} onDecision={decideTabAffinity} />
+      {showSessionPicker && (
+        <section className="session-picker" aria-label={copy.app.sessions}>
+          <div className="session-picker-head">
+            <strong>{copy.app.sessions}</strong>
+            <button className="session-new" disabled={state !== 'connected' || sessionSwitchBlocked}
+              onClick={() => { void startNewSession() }}>
+              {copy.app.newSession}
+            </button>
+          </div>
+          {loadingSessions
+            ? <p className="session-empty">{copy.app.sessionPickerLoading}</p>
+            : sessionList.length === 0
+              ? <p className="session-empty">{copy.app.sessionPickerEmpty}</p>
+              : (
+                <ul className="session-list">
+                  {sessionList.map((entry) => {
+                    const title = sessionDisplayTitle(entry)
+                    return (
+                      <li key={entry.sessionId}>
+                        <button disabled={sessionSwitchBlocked}
+                          aria-current={entry.sessionId === sessionRef.current ? 'true' : undefined}
+                          onClick={() => { void resumeSession(entry) }}>
+                          <span className="session-title" title={title}>{title}</span>
+                          <span className="session-meta">
+                            <span className="session-time">{new Date(entry.updatedAt).toLocaleString()}</span>
+                            {entry.cwd !== undefined && <span className="session-cwd" title={entry.cwd}>{entry.cwd}</span>}
+                          </span>
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+        </section>
+      )}
+      <div className="messages" ref={scrollRef}>
+        {rows.length === 0 && !working && (
+          <div className="empty">
+            <span className="empty-logo"><img src={whaleUrl} alt="" /></span>
+            <div>
+              <h1>{copy.app.emptyTitle}</h1>
+              <p>{copy.app.emptyDescription}</p>
+            </div>
+            <button disabled={!sessionReady}
+              onClick={() => { void send(copy.app.overviewPrompt) }}>
+              {copy.app.overviewPage}
+            </button>
+          </div>
+        )}
+        {rows.map((row) => (
+          <div key={row.seq} className={`row ${row.kind}`}>
+            {row.kind === 'assistant' && <span className="assistant-avatar"><img src={whaleUrl} alt={copy.app.assistant} /></span>}
+            {row.kind === 'tool'
+              ? <ToolActivity row={row} copy={copy} />
+              : <MessageBody row={row} sessionId={sessionRef.current ?? ''} api={api} copy={copy} />}
+          </div>
+        ))}
+        {working && question === null && rows[rows.length - 1]?.status !== 'running' && (
+          <div className="ai-progress" role="status" aria-label={copy.app.assistantWorking}>
+            <span className="assistant-avatar"><img src={whaleUrl} alt="" /></span>
+            <span className="progress-dots" aria-hidden="true"><i /><i /><i /></span>
+            <span>{rows[rows.length - 1]?.kind === 'tool' ? copy.app.organizingResults : copy.app.thinking}</span>
+          </div>
+        )}
+      </div>
+      {question !== null && (
+        <QuestionCard
+          key={`${question.sessionId}:${question.rpcId}`}
+          question={question}
+          copy={copy}
+          submitting={questionSubmitting}
+          onAnswer={(answers) => { void answerQuestion(question, answers) }}
+          onDismiss={() => { void dismissQuestion(question) }}
+        />
+      )}
+      {error !== null && <div className="error">{error}</div>}
+      <footer className="composer">
+        <div className="composer-box">
+          {draftImages.length > 0 && (
+            <div className="draft-images" aria-label={copy.app.addImages}>
+              {draftImages.map((image) => {
+                const name = image.name ?? copy.app.image
+                return (
+                  <span className="draft-image" key={image.id}>
+                    <img src={draftImageDataUrl(image)} alt={name} />
+                    <button
+                      type="button"
+                      disabled={busy || addingImages}
+                      aria-label={copy.app.removeImage(name)}
+                      title={copy.app.removeImage(name)}
+                      onClick={() => setDraft((current) => ({
+                        ...current,
+                        images: current.images.filter((item) => item.id !== image.id),
+                      }))}
+                    >×</button>
+                  </span>
+                )
+              })}
+            </div>
+          )}
+          <textarea
+            value={input}
+            onChange={(e) => {
+              if (!sendingRef.current) setDraft((current) => ({ ...current, text: e.target.value }))
+            }}
+            onKeyDown={(e) => {
+              // isComposing：输入法组词中的回车是确认选字，不是发送。
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault()
+                void send()
+              }
+            }}
+            placeholder={state === 'connected' ? copy.app.connectedPlaceholder : copy.app.disconnectedPlaceholder}
+            disabled={!sessionReady || busy}
+            rows={2}
+          />
+          <div className="composer-actions">
+            <span className="composer-actions-start">
+              <input
+                ref={fileInputRef}
+                className="image-file-input"
+                type="file"
+                accept={imageLimits?.mediaTypes.join(',')}
+                multiple
+                tabIndex={-1}
+                onChange={(event) => {
+                  const files = [...(event.target.files ?? [])]
+                  event.target.value = ''
+                  void addImageFiles(files)
+                }}
+              />
+              <button
+                type="button"
+                className="attachment-button"
+                disabled={!sessionReady || busy || addingImages || imageLimits === null
+                  || draftImages.length >= imageLimits.maxImagesPerMessage}
+                aria-label={copy.app.addImages}
+                title={imageLimits === null ? copy.app.imageUnavailable : copy.app.addImages}
+                onClick={() => fileInputRef.current?.click()}
+              ><AttachmentIcon /></button>
+              <span>{copy.app.composerHelp}</span>
+            </span>
+            {working ? (
+              <button
+                className="stop-button"
+                onClick={() => { void stopTurn() }}
+                disabled={!sessionReady || stopping}
+                aria-label={stopping ? copy.app.stoppingTurn : copy.app.stopTurn}
+                title={stopping ? copy.app.stoppingTurn : copy.app.stopTurn}
+              >
+                <span className="stop-glyph" aria-hidden="true" />
+              </button>
+            ) : (
+              <button onClick={() => void send()}
+                disabled={!sessionReady || busy || addingImages || (input.trim() === '' && draftImages.length === 0)}
+                aria-label={copy.app.sendMessage}><SendIcon /></button>
+            )}
+          </div>
+        </div>
+      </footer>
+    </div>{approvalDialog}</>
+  )
+}

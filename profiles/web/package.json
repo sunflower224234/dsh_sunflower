@@ -1,0 +1,48 @@
+{
+  "name": "dsh-profile-web",
+  "private": true,
+  "dependencies": {
+    "@linxin666/dsh-chat-recovery": "^0.2.9",
+    "@linxin666/dsh-client-ui-git-graph": "^0.2.9",
+    "@linxin666/dsh-client-ui-skill-explorer": "^0.2.9",
+    "@linxin666/dsh-client-ui-task-board": "^0.2.9",
+    "@linxin666/dsh-liangshen": "^0.2.9",
+    "@linxin666/dsh-remote-web-ui": "^0.2.9",
+    "@linxin666/dsh-ssh": "^0.2.9",
+    "@linxin666/dsh-tool-describe-image": "^0.2.9",
+    "@nanmicoder/dsh-agent-teams": "^0.1.8",
+    "@yuxianglin/dsh-bridge-browser": "link:../../dsh-browser/packages/browser/bridge-browser",
+    "deepseek-harness-zh_pro": "^0.5.0",
+    "dsh-any-background": "^0.1.9",
+    "dsh-better-sidebar": "0.15.1",
+    "dsh-doc": "^0.1.1",
+    "dsh-find-plugin": "^0.3.7",
+    "dsh-whale-widget": "link:./local-plugins/whale-widget",
+    "dshmarket": "^1.16.0"
+  },
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-web-app",
+        "deepseek-harness-zh_pro",
+        "@nanmicoder/dsh-agent-teams",
+        "dsh-doc",
+        "dshmarket",
+        "dsh-any-background",
+        "dsh-whale-widget",
+        "dsh-better-sidebar",
+        "@linxin666/dsh-chat-recovery",
+        "@linxin666/dsh-client-ui-git-graph",
+        "@linxin666/dsh-client-ui-skill-explorer",
+        "@linxin666/dsh-client-ui-task-board",
+        "@linxin666/dsh-liangshen",
+        "@linxin666/dsh-remote-web-ui",
+        "@linxin666/dsh-ssh",
+        "@linxin666/dsh-tool-describe-image",
+        "dsh-find-plugin",
+        "@yuxianglin/dsh-bridge-browser"
+      ]
+    }
+  }
+}

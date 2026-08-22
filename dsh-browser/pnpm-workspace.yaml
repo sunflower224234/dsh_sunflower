@@ -1,0 +1,17 @@
+# dsh-browser 独立 workspace：桥接插件与 Chrome 扩展自包含安装。
+packages:
+  - extensions/*
+  - packages/*/*
+
+# dsh 运行时与扩展构建依赖这些受信任包的安装脚本。
+allowBuilds:
+  '@deepseek-ai/dsh-subprocess-local': true
+  '@google/genai': true
+  esbuild: true
+  koffi: true
+  node-pty: true
+  protobufjs: true
+
+# 内测版 @deepseek-ai 包需要在发布后立即安装。
+minimumReleaseAgeExclude:
+  - '@deepseek-ai/*'

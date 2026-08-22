@@ -1,0 +1,23 @@
+packages:
+  - .
+
+nodeLinker: hoisted
+autoInstallPeers: false
+allowBuilds:
+  protobufjs: true
+  node-pty: true
+  ssh2: true
+  cpu-features: true
+  cloudflared: true
+
+minimumReleaseAgeExclude:
+  - dsh-better-sidebar
+  - '@linxin666/*'
+  - '@linxin666/dsh-client-ui-task-board'
+  - '@linxin666/dsh-client-ui-git-graph'
+  - '@linxin666/dsh-liangshen'
+  - '@linxin666/dsh-ssh'
+  - '@linxin666/dsh-tool-describe-image'
+  - '@linxin666/dsh-client-ui-skill-explorer'
+  - '@linxin666/dsh-chat-recovery'
+  - '@linxin666/dsh-remote-web-ui'

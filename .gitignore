@@ -1,0 +1,35 @@
+# ---------------------------------------------------------------------------
+# dsh-setup .gitignore
+# Never commit secrets, per-machine identity, or build artifacts.
+# The whale-widget plugin's source lives in lib/index.js — do NOT ignore it.
+# ---------------------------------------------------------------------------
+
+# dependency trees
+node_modules/
+.pnpm/
+**/node_modules/
+
+# dsh-browser build outputs (bridge lib/ and extension dist/ are generated)
+dsh-browser/**/lib/
+dsh-browser/**/dist/
+dsh-browser/**/dist-firefox/
+**/coverage/
+*.tsbuildinfo
+
+# secrets / local identity — never commit
+.dsh-zh-hot/
+*.bak-whale
+ext-bridge-token
+.credentials.yaml
+.anonymous-user-id
+.dsh-any-background-data/
+.env
+.env.*
+*.local
+
+# logs / scratch
+*.log
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store
