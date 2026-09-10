@@ -46,12 +46,17 @@ start.bat
 
 ```
 assets/
-├─ icon-src.png              应用图标原图（1254×1254，圆角方图）
+├─ icon-src.png              应用图标原图（1254×1254，圆角方图；源图在 新客户端/图标.png）
 └─ backgrounds/              壁纸，每次启动随机挑一张（启动界面 + 主界面同一张）
-   ├─ bg-day.png  bg-day-1.png  bg-day-2.png      白天
-   ├─ bg-night-1.png  bg-night-2.png              夜晚（启动界面自动用更轻的压暗）
-   └─ bg-seaside.png                              海边
+   ├─ bg-day-1.png           白天
+   ├─ bg-night-2.png         夜晚（启动界面自动用更轻的压暗）
+   ├─ bg-seaside.png         海边
+   ├─ bg-street.png          街头
+   └─ bg-street-2.png        街头 · 店门口
 ```
+
+> 加图/删图都不用改代码：`main.js` 的 `pickBackground()` 每次启动现扫 `assets/backgrounds/`，随机取一张。
+> 源素材放在 `新客户端/`，成品文件名统一改成 ASCII（`bg-*.png`）后再放进 `assets/backgrounds/`。
 
 - `icon.ico`（Windows 任务栏 / 资源管理器）与 `splash.png`（标题栏 24px 品牌标 + 启动界面 Logo）都由 `assets/icon-src.png` 生成：
 
