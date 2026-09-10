@@ -1,0 +1,13 @@
+# ============================================================================
+# dsh-tts-voice —— DSH bundle patch（挂载声明）
+# ============================================================================
+# 把 dsh-tts-voice 插件插入 Web profile 的配置树。
+# 安装：
+#   dsh plugin --profile web add link:<本目录绝对路径>
+# 卸载：
+#   dsh plugin --profile web remove dsh-tts-voice
+# ============================================================================
+
+- insert:
+    - id: dsh-tts-voice
+      name: dsh-tts-voice
