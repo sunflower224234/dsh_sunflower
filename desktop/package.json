@@ -1,0 +1,13 @@
+{
+  "name": "dsh-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DeepSeek Harness 桌面端：Electron 外壳，自动启动/复用 dsh web 后端并加载其 Web UI",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^43.4.0"
+  }
+}
