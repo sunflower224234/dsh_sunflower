@@ -4,14 +4,6 @@
 
 启动界面使用随机壁纸，与桌面图标同一套美术资源。
 
-![主界面](screenshots/01-主界面.png)
-
-<sub>主界面：随机壁纸（`bg-seaside.png`）+ 注入式毛玻璃标题栏 + 左下角语音悬浮按钮</sub>
-
-![启动界面](screenshots/02-启动界面-海边.png)
-
-<sub>启动界面：随机壁纸 + 左下角品牌托盘（每次启动换一张）</sub>
-
 ## 环境要求
 
 - **Node.js 20+**（`node -v` 可查看）
@@ -55,8 +47,14 @@ assets/
    └─ bg-street-2.png        街头 · 店门口
 ```
 
-> 加图/删图都不用改代码：`main.js` 的 `pickBackground()` 每次启动现扫 `assets/backgrounds/`，随机取一张。
+> 加图/删图都不用改代码：`main.js` 的 `pickBackground()` 每次启动现扫 `assets/backgrounds/`，
+> 随机取一张，并**避开上次用过的那张**（记录在 `%APPDATA%\dsh-desktop\window-state.json` 的
+> `lastBackground` 字段，所以重启进程后依然有效）。排除上一张后其余等概率 —— 仍是随机，
+> 只是不会出现「连着两次一模一样」；只有一张图时自然就选它。
 > 源素材放在 `新客户端/`，成品文件名统一改成 ASCII（`bg-*.png`）后再放进 `assets/backgrounds/`。
+
+自测：`node_modules\electron\dist\electron.exe --user-data-dir=%TEMP%\x .\test-background-pick.js`
+（12 项断言，含「不排除时确实会连着重复」的对照组，用来证明测试有区分力。）
 
 - `icon.ico`（Windows 任务栏 / 资源管理器）与 `splash.png`（标题栏 24px 品牌标 + 启动界面 Logo）都由 `assets/icon-src.png` 生成：
 

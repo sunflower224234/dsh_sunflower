@@ -39,13 +39,37 @@ function imageMime(file) {
  * 读取上次记住的窗口状态。
  * 返回 null 表示「没有可用记忆」（首次启动、文件损坏、或记下的位置如今不在任何显示器上）。
  */
-function loadWindowState() {
-  let raw
+/** 读取记忆文件（容错）：不存在或损坏都返回 null。 */
+function readStateFile() {
   try {
-    raw = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'))
+    return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
   } catch {
-    return null; // 首次启动或文件损坏：用默认尺寸
+    return null;
   }
+}
+
+/**
+ * 原子写入记忆文件（临时文件 + rename，避免半截 JSON 被读到）。
+ * 只合并传入的字段，不动文件里已有的其它键（例如 lastBackground）。
+ */
+function writeStateFile(patch) {
+  try {
+    const current = readStateFile() || {};
+    const next = { ...current, ...patch };
+    fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true });
+    const tmp = STATE_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(next, null, 2) + '\n', 'utf8');
+    fs.renameSync(tmp, STATE_FILE);
+    return next;
+  } catch (err) {
+    backend.LOG('窗口状态保存失败：', err && err.message ? err.message : err);
+    return null;
+  }
+}
+
+function loadWindowState() {
+  const raw = readStateFile();
+  if (!raw) return null; // 首次启动或文件损坏：用默认尺寸
   const b = raw && raw.bounds
   if (!b || !Number.isFinite(b.width) || !Number.isFinite(b.height)) return null;
   const bounds = {
@@ -60,6 +84,12 @@ function loadWindowState() {
     delete bounds.y
   }
   return { bounds, maximized: raw.maximized === true };
+}
+
+/** 上一次用过的那张壁纸（用于「避开上一张」），没有则返回 null。 */
+function loadLastBackground() {
+  const raw = readStateFile();
+  return raw && typeof raw.lastBackground === 'string' && raw.lastBackground ? raw.lastBackground : null;
 }
 
 /** 记忆的矩形是否与任一显示器有足够交集（至少 120px 可见）。 */
@@ -79,19 +109,10 @@ function visibleOnSomeDisplay(bounds) {
 /** 把当前窗口状态写入记忆文件（原子写：临时文件 + rename）。 */
 function saveWindowState(win) {
   if (!win || win.isDestroyed()) return;
-  try {
-    const maximized = win.isMaximized();
-    // 最大化时 getBounds 返回的是最大化后的矩形，不能拿它当「还原尺寸」；
-    // getNormalBounds 才是还原后的尺寸，这样「最大化→关闭→再开」也能记住原来的大小。
-    const b = win.getNormalBounds();
-    const payload = { bounds: { x: b.x, y: b.y, width: b.width, height: b.height }, maximized };
-    fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true });
-    const tmp = STATE_FILE + '.tmp'
-    fs.writeFileSync(tmp, JSON.stringify(payload, null, 2) + '\n', 'utf8')
-    fs.renameSync(tmp, STATE_FILE)
-  } catch (err) {
-    backend.LOG('窗口状态保存失败：', err && err.message ? err.message : err);
-  }
+  // 最大化时 getBounds 返回的是最大化后的矩形，不能拿它当「还原尺寸」；
+  // getNormalBounds 才是还原后的尺寸，这样「最大化→关闭→再开」也能记住原来的大小。
+  const b = win.getNormalBounds();
+  writeStateFile({ bounds: { x: b.x, y: b.y, width: b.width, height: b.height }, maximized: win.isMaximized() });
 }
 
 /** 绑定窗口状态的记忆：改变尺寸/位置/最大化状态后防抖保存，关闭时立即保存。 */
@@ -108,20 +129,26 @@ function attachWindowStatePersistence(win) {
 }
 
 /**
- * 每次启动从 assets/backgrounds 随机挑一张背景图。
+ * 每次启动从 assets/backgrounds 随机挑一张背景图，并**避开上次用过的那张**
+ * （纯随机也允许连续两张一样，但观感上很扎眼；排除上一张后其余等概率，
+ * 仍保留随机性，只是消掉「连着两次一模一样」）。
  *   - 启动界面：经 ?bg=<file> 传给 loading.html（它自己按相对路径取图）；
  *   - 主界面：经 IPC 以 data URL 下发（dsh 页面跑在 http://127.0.0.1:3080，
  *     CSP 会拦掉 file:// 图片 —— 实测 file:// 图片在该页面里 naturalWidth 恒为 0，
  *     而 data URL 正常，所以这里由主进程读文件后编码下发，与 titlebar:icon 同一套做法）。
  * 两者共用同一次随机结果，保证启动界面和进入应用后是同一张。
+ * 上一张记录在记忆文件里，所以重启进程后依然有效；只有一张图时自然就选它。
  */
-function pickBackground() {
+function pickBackground(exclude) {
   try {
     const files = fs.readdirSync(BACKGROUND_DIR)
       .filter((f) => /\.(png|jpe?g|webp)$/i.test(f))
       .sort();
     if (!files.length) return null;
-    const file = files[Math.floor(Math.random() * files.length)];
+    // 候选 = 除上一次那张以外的全部；候选为空（只有一张图）时退回全部
+    const pool = files.length > 1 && exclude ? files.filter((f) => f !== exclude) : files;
+    const candidates = pool.length ? pool : files;
+    const file = candidates[Math.floor(Math.random() * candidates.length)];
     const filePath = path.join(BACKGROUND_DIR, file);
     let cached = null; // 懒编码 + 缓存，避免每次取用都重读一遍 2MB 图
     return {
@@ -288,7 +315,9 @@ async function run() {
     }
   }
 
-  launchBackground = pickBackground();
+  // 避开上次用过的那张（记录在记忆文件里，重启进程后依然有效）
+  launchBackground = pickBackground(loadLastBackground());
+  if (launchBackground) writeStateFile({ lastBackground: launchBackground.file });
   backend.LOG('启动界面背景：', launchBackground ? launchBackground.file : '（无可用背景图）');
   mainWindow = createWindow();
 
