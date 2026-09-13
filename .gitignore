@@ -33,3 +33,23 @@ ext-bridge-token
 .vscode/
 Thumbs.db
 .DS_Store
+
+# ---------------------------------------------------------------------------
+# QQ 群机器人补丁包 —— 备份与产物不入库
+# ---------------------------------------------------------------------------
+qq-bot/backup/            # 8MB 级 bundle 快照，仅用于本地回滚
+qq-bot/out/               # TTS 合成出的测试音频
+qq-bot/*.preview.js       # 补丁预演生成的完整 bundle 副本
+
+# 双 Agent 协作桥 —— 运行产物不入库
+agent/.env
+agent/backups/
+agent/cache/
+agent/inbox/processing/
+agent/TASK_LOG.jsonl
+agent/CURRENT_TASK.md
+agent/DIFF_AUDIT.md
+agent/collab-session.json
+
+# QQ 机器人入站附件（若将来落盘）
+.dsh-im/
