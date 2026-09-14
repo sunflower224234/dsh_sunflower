@@ -5,7 +5,7 @@
 # DeepSeek Harness 桌面端 · 插件与工具集
 
 **把 DeepSeek Harness 装进一个像样的原生窗口，并附上一组本地插件与配套工具。**
-Electron 桌面端（随机壁纸 · 窗口状态记忆 · 注入式标题栏） + 语音朗读插件 + 人格插件 + 双 Agent 协作桥 + QQ 群机器人补丁包 + 浏览器桥与 MV3 扩展。
+Electron 桌面端（随机壁纸 · 窗口状态记忆 · 注入式标题栏） + 语音朗读插件 + 人格插件 + 双 Agent 协作桥 + QQ 群机器人补丁包。
 
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?logo=windows&logoColor=white)](#0-前置检查)
 [![Electron](https://img.shields.io/badge/Electron-43-47848F?logo=electron&logoColor=white)](desktop/package.json)
@@ -31,8 +31,7 @@ Electron 桌面端（随机壁纸 · 窗口状态记忆 · 注入式标题栏）
 | [`plugins/dsh-tts-voice/`](plugins/dsh-tts-voice/) | **本地语音朗读插件**：GPT-SoVITS 逐句朗读，设置里有原生配置页 | 否 | [README](plugins/dsh-tts-voice/README.md) |
 | [`plugins/dsh-persona-yeshunguang/`](plugins/dsh-persona-yeshunguang/) | **System Prompt 人格插件**：多人设、按 `agentPreset` 分流 | 否 | [README](plugins/dsh-persona-yeshunguang/README.md) |
 | [`plugins/dsh-im-readonly/`](plugins/dsh-im-readonly/) | **IM 群聊只读闸门**：把群聊会话的权限预设锁成 `read-only` | 否 | [cordis.patch.yml](plugins/dsh-im-readonly/cordis.patch.yml) |
-| [`dsh-browser/`](dsh-browser/) | 浏览器桥 + Chrome/Firefox MV3 扩展（源码，需自行构建） | 否 | [README](dsh-browser/README.md) |
-| [`install.ps1`](install.ps1) | Windows 一键安装：把 `dsh-browser/`、`plugins/`、`profiles/web/` 放到 `$DSH_HOME` 下，装依赖、构建扩展 | 推荐 | 见下 |
+| [`install.ps1`](install.ps1) | Windows 一键安装：把 `plugins/`、`profiles/web/` 放到 `$DSH_HOME` 下并安装依赖 | 推荐 | 见下 |
 | [`agent/`](agent/) | **双 Agent 协作桥**：Antigravity(Gemini) 当架构师、DSH 当实现员，含任务下发、安全快照、回滚 | 否 | 见下 |
 | [`qq-bot/`](qq-bot/) | **QQ 群机器人补丁包**：给官方 QQ 机器人加语音条、用户识别、引用图片与权限控制 | 否 | 见下 |
 
@@ -56,7 +55,7 @@ npm -v
 任一缺失先补上（Node.js 从 <https://nodejs.org/> 装 LTS 版）。然后：
 
 ```powershell
-# pnpm（dsh-browser 与 profiles/web 都用 pnpm）
+# pnpm（安装 profiles/web 的依赖要用）
 corepack enable
 corepack prepare pnpm@11.7.0 --activate
 pnpm -v
@@ -86,14 +85,13 @@ cd dsh-setup
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-脚本共 6 步：检查前置工具 → 装 dsh（已装则跳过）→ 放置 `dsh-browser` / `plugins` / `profiles/web` 到 `$DSH_HOME` → 构建 `dsh-browser` → 安装 profile 依赖 → 把构建好的扩展复制到 `$DSH_HOME\browser-extension`。
+脚本共 4 步：检查前置工具（含 Node 版本与 pnpm）→ 装 dsh（已装则跳过）→ 把 `plugins/` 与 `profiles/web/` 放到 `$DSH_HOME` → 安装 profile 依赖。
 
 可用参数：
 
 | 参数 | 作用 |
 |---|---|
 | `-SkipDshInstall` | 跳过 `npm install -g @deepseek-ai/dsh` |
-| `-SkipBuild` | 跳过 pnpm 构建（不推荐，除非你已手动构建过） |
 | `-DshHome <路径>` | 指定目标目录，优先于环境变量 `DSH_HOME` |
 
 例：
@@ -108,17 +106,15 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -SkipDshInstall
 $H = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $HOME '.dsh' }
 
 Test-Path "$H\plugins\dsh-tts-voice"                        # 本地插件已就位
-Test-Path "$H\dsh-browser\packages\browser\bridge-browser\lib\index.js"   # 桥插件已构建
 Test-Path "$H\profiles\web\node_modules"                    # profile 依赖已装
 Test-Path "$H\profiles\web\node_modules\dsh-tts-voice"      # 相对链接解析成功
-Test-Path "$H\browser-extension\manifest.json"              # 扩展已就位
 ```
 
-> **为什么必须让 `dsh-browser` / `plugins` / `profiles` 三者同级**：`profiles/web/package.json`
-> 里用 `link:../../plugins/dsh-tts-voice` 这类**相对**链接引用它们。只有同级时相对路径才成立 ——
+> **为什么 `plugins/` 必须与 `profiles/` 同级**：`profiles/web/package.json` 里用
+> `link:../../plugins/dsh-tts-voice` 这类**相对**链接引用它们。只有同级时相对路径才成立 ——
 > 这也是 `install.ps1` 存在的意义（它按这个布局摆放，而不是随便拷到一个目录里）。
 >
-> 脚本遇到已存在的 `$H\dsh-browser`、`$H\plugins`、`$H\profiles\web` 会先改名为 `.bak` 再覆盖，
+> 脚本遇到已存在的 `$H\plugins`、`$H\profiles\web` 会先改名为 `.bak` 再覆盖，
 > **重复执行是安全的**。
 
 **已知的无害告警**：`pnpm install` 阶段可能看到 `cpu-features` / `ssh2` 的 `node-gyp` 编译失败。
@@ -127,63 +123,26 @@ Test-Path "$H\browser-extension\manifest.json"              # 扩展已就位
 
 ### 3. 手动分步（脚本失败时走这条）
 
-等价的手工流程。**顺序不能颠倒** —— `profiles/web` 用相对路径 `link:` 指向 `plugins/` 与
-`dsh-browser/` 的产物，目标必须先存在。
+等价的手工流程。**顺序不能颠倒** —— `profiles/web` 用相对路径 `link:` 指向 `plugins/`，
+目标必须先存在。
 
 ```powershell
 $H = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $HOME '.dsh' }
 $Repo = (Get-Location).Path      # 仓库根
 
-# --- 3.1 dsh-browser：搬运 + 构建 ---
-Copy-Item -Recurse -Force "$Repo\dsh-browser" "$H\dsh-browser"
-cd "$H\dsh-browser"
-pnpm install
-pnpm build
-
-# --- 3.2 本地插件：搬运（profiles/web 的相对链接指向这里） ---
-cd $Repo
+# --- 3.1 本地插件：搬运（profiles/web 的相对链接指向这里） ---
 Copy-Item -Recurse -Force "$Repo\plugins" "$H\plugins"
 
-# --- 3.3 web profile：搬运 + 装依赖 ---
+# --- 3.2 web profile：搬运 + 装依赖 ---
 New-Item -ItemType Directory -Force -Path "$H\profiles" | Out-Null
 Copy-Item -Recurse -Force "$Repo\profiles\web" "$H\profiles\web"
 cd "$H\profiles\web"
 pnpm install
-
-# --- 3.4 扩展：复制到固定加载目录 ---
-$ext = "$H\dsh-browser\extensions\dsh-browser\dist"
-if (Test-Path $ext) {
-    if (Test-Path "$H\browser-extension") { Remove-Item -Recurse -Force "$H\browser-extension" }
-    Copy-Item -Recurse -Force $ext "$H\browser-extension"
-} else { Write-Warning "扩展未构建：$ext 不存在，检查 3.1 的 pnpm build" }
 ```
 
-**成功判据**：同第 2 步的五个 `Test-Path` 全为 `True`。
+**成功判据**：同第 2 步的三个 `Test-Path` 全为 `True`。
 
-### 4. 加载浏览器扩展
-
-1. 打开 `chrome://extensions`。
-2. 右上角打开 **开发者模式**。
-3. **加载已解压的扩展程序** → 选 `$DSH_HOME\browser-extension`。
-4. 重启 dsh：关掉正在跑的 `dsh web`，重新 `dsh web`。
-
-**Chrome 与 Firefox 的差别**：
-
-| | Chrome / Edge | Firefox |
-|---|---|---|
-| 加载入口 | `chrome://extensions` → 加载已解压的扩展程序 | `about:debugging#/runtime/this-firefox` → 临时载入附加组件 |
-| 构建产物 | `dist/`（`pnpm build` 的产物） | `dist-firefox/`（需另跑下面的命令） |
-| 连接鉴权 | **回环连接自动发现，不需要 token** | 需要把 `$DSH_HOME\ext-bridge-token` 的内容**粘贴进扩展设置页** |
-
-```powershell
-# Firefox 版扩展（可选）
-cd "$H\dsh-browser\extensions\dsh-browser"
-pnpm run build:firefox     # 产物：dist-firefox/
-```
-
-**成功判据**：扩展出现在扩展列表里且没有报错；打开扩展侧边栏能连上本地 dsh。
-
-### 5. 配置凭据
+### 4. 配置凭据
 
 在 dsh 的凭据界面配置下列键（桌面端与 Web 端共用同一份凭据存储）：
 
@@ -192,7 +151,7 @@ pnpm run build:firefox     # 产物：dist-firefox/
 | `DEEPSEEK_API_KEY` | **必需** | 模型调用；鲸鱼挂件的余额显示也依赖它 |
 | `DEEPSEEK_PLATFORM_TOKEN` | 可选 | 鲸鱼挂件的「实时·令牌」用量模式 |
 
-> **不要把凭据写进仓库。** `.credentials.yaml`、`ext-bridge-token`、`.env*` 已在 `.gitignore` 里，
+> **不要把凭据写进仓库。** `.credentials.yaml`、`.env*` 已在 `.gitignore` 里，
 > 但**新建的配置文件不会自动被忽略**，提交前请再确认一次 `git status`。
 
 `profiles/web/cordis.patch.yml` 里 `dsh-doc` 的运行时目录是用 `!!js` 从环境变量动态解析的，
@@ -204,7 +163,7 @@ runtimeDir: !!js process.env.DSH_HOME + '\\runtimes\\dshdoc-runtime-win32-x64'
 
 **成功判据**：`dsh web` 启动后浏览器能正常对话；鲸鱼挂件显示余额。
 
-### 6. 启动桌面端
+### 5. 启动桌面端
 
 桌面端是**独立的 npm 项目**，不经过 `install.ps1`，也不需要放进 `$DSH_HOME`：
 
@@ -218,9 +177,9 @@ cd <仓库路径>\desktop
 
 **成功判据**：出现无边框窗口、显示随机壁纸的启动界面，随后进入 dsh 主界面。
 
-### 7. 可选组件的独立安装
+### 6. 可选组件的独立安装
 
-#### 7.1 语音朗读插件（`plugins/dsh-tts-voice`）
+#### 6.1 语音朗读插件（`plugins/dsh-tts-voice`）
 
 先决条件：本地已部署 **GPT-SoVITS V2**（插件默认找 `F:/AI/GPT-SoVITS`，可用 `DSH_TTS_DIR` 覆盖）。
 
@@ -244,12 +203,12 @@ pnpm install          # 让 link: 链接生效
 | `DSH_TTS_URL` | `http://127.0.0.1:9880/tts` | TTS 接口地址 |
 | `DSH_TTS_ENABLED` | `1` | 启动时是否开启朗读（设为 `0` 或 `false` 关闭） |
 
-#### 7.2 人格插件（`plugins/dsh-persona-yeshunguang`）
+#### 6.2 人格插件（`plugins/dsh-persona-yeshunguang`）
 
 跑过 `install.ps1` 就已装好。**但它默认不加载任何人设文件** —— 需要你自备人设 `.md` 并配置路径
 （见下方「[改哪些写死的路径](#改哪些写死的路径不是形式但同样必须改)」）。
 
-#### 7.3 双 Agent 协作桥（`agent/`）
+#### 6.3 双 Agent 协作桥（`agent/`）
 
 无额外安装步骤，直接用 `node` 跑脚本。**必须在仓库根目录执行** —— 脚本按仓库根解析
 `.agent/inbox`、`.agent/backups` 这类相对路径。
@@ -257,7 +216,7 @@ pnpm install          # 让 link: 链接生效
 > 注意：`agent/bridge/cli.mjs` 内置帮助里写的是 `node .agent/bridge/cli.mjs`（带前导点），
 > 而仓库里的真实目录是 `agent/bridge/`（不带点）—— **以 `agent/bridge/` 为准**。
 
-#### 7.4 QQ 群机器人（`qq-bot/`）
+#### 6.4 QQ 群机器人（`qq-bot/`）
 
 先决条件：
 
@@ -316,12 +275,10 @@ Get-ChildItem -Recurse -File |
 
 ## 验证安装成功的检查清单
 
-按顺序打勾。前四项是「框架装好了」，后几项按你实际装的组件选做。
+按顺序打勾。前几项是「框架装好了」，后几项按你实际装的组件选做。
 
 - [ ] **dsh 可用**：`dsh --version` 打印版本号
-- [ ] **桥插件已构建**：`Test-Path "$H\dsh-browser\packages\browser\bridge-browser\lib\index.js"` 为 `True`
 - [ ] **profile 依赖已装**：`Test-Path "$H\profiles\web\node_modules"` 为 `True`，且其下能看到 `dsh-tts-voice`、`dsh-persona-yeshunguang`、`dsh-im-readonly`（指向 `$H\plugins\` 的链接）
-- [ ] **扩展已就位**：`Test-Path "$H\browser-extension\manifest.json"` 为 `True`，且已在浏览器里加载、无报错
 - [ ] **配置生效**：`dsh --profile web` 启动后能在浏览器里正常对话
 - [ ] **桌面端自测**：`desktop` 下测试脚本全绿（见「[自测命令](#自测命令)」）
 - [ ] **语音插件自测**：`plugins/dsh-tts-voice` 下四个测试脚本全过
@@ -528,13 +485,6 @@ node plugins\dsh-im-readonly\test\group-gate.mjs
 node plugins\dsh-persona-yeshunguang\test\zh-pro-chain.mjs
 ```
 
-```powershell
-# --- dsh-browser 的单元测试（需先 pnpm install）---
-cd "$H\dsh-browser"
-pnpm test
-pnpm typecheck
-```
-
 > 桌面端前两个自测**必须用独立 `--user-data-dir`**，否则会写到你真实的窗口状态记忆文件。
 
 ---
@@ -553,8 +503,8 @@ node node_modules\electron\install.js
 
 **`pnpm install` 报错**
 1. 确认 `pnpm -v` 是 `11.7.0`（`corepack prepare pnpm@11.7.0 --activate`）。
-2. `link:` 目标不存在会导致安装失败 —— 先确认 `$H\dsh-browser\...\bridge-browser` 已构建、
-   `$H\plugins\dsh-*` 已就位，顺序不能颠倒（见第 3 步）。
+2. `link:` 目标不存在会导致安装失败 —— 先确认 `$H\plugins\dsh-*` 已就位，
+   顺序不能颠倒（见第 3 步）。
 3. 看到 `cpu-features` / `ssh2` 的 `node-gyp` 报错可以先忽略（见第 2 步的「已知的无害告警」）。
 4. 网络问题可试 `pnpm install --registry=https://registry.npmmirror.com`。
 
@@ -567,12 +517,11 @@ set DSH_PORT=8090
 call npm start
 ```
 
-**扩展加载不上**
-- 确认选的是 `$DSH_HOME\browser-extension`（里面应当直接看到 `manifest.json`），不是它的上级目录。
-- 确认 `pnpm build` 真的跑过了 —— `dist/` 不存在时脚本只会警告，不会报错。
-- 确认 dsh 正在运行 —— 扩展要连的桥插件在 dsh 进程里。
-- Firefox 版必须用 `dist-firefox/`，并把 `$DSH_HOME\ext-bridge-token` 的内容填进扩展设置页；
-  Chrome 走回环自动发现，不需要 token。
+**浏览器扩展呢？**
+本仓库**暂不分发** `dsh-browser/`（浏览器桥 + Chrome/Firefox MV3 扩展）—— 扩展侧还在更新，
+当前接上也不可用，所以从仓库和默认 profile 里摘掉了，免得装上一套用不了的东西。
+
+需要时自行从上游获取：[Lum1104/dsh-browser](https://github.com/Lum1104/dsh-browser)（MIT）。
 
 **GPT-SoVITS 路径不对**
 插件默认找 `F:/AI/GPT-SoVITS`。换机器后设置 `DSH_TTS_DIR` 指向你的部署目录，同时把
@@ -590,7 +539,7 @@ call npm start
 另外**已有会话不会自动换人设** —— preset 只在会话创建时读取，改完要发一次 `/new`。
 
 **提交前发现凭据**
-检查 `git status`，确认没有 `.credentials.yaml`、`ext-bridge-token`、`.env*`。
+检查 `git status`，确认没有 `.credentials.yaml`、`.env*`。
 
 ---
 
@@ -598,7 +547,6 @@ call npm start
 
 本仓库**复制（vendor）**了以下第三方项目源码，各自遵循其原始许可证：
 
-- `dsh-browser/` — 来自 [Lum1104/dsh-browser](https://github.com/Lum1104/dsh-browser)（MIT，作者 Yuxiang Lin）。
 - `profiles/web/local-plugins/whale-widget/` — 来自 [MeteorNOX/DeepSeek-Balance-Whale-Widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)（含本地改动）。
 
 如需升级这些上游组件，请从对应上游仓库拉取最新版本；本仓库不会自动同步。

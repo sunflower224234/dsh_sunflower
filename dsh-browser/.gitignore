@@ -1,7 +1,0 @@
-node_modules/
-**/node_modules/
-**/lib/
-!benchmark/lib/
-!benchmark/lib/**
-**/dist/
-**/dist-firefox/

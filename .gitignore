@@ -9,10 +9,7 @@ node_modules/
 .pnpm/
 **/node_modules/
 
-# dsh-browser build outputs (bridge lib/ and extension dist/ are generated)
-dsh-browser/**/lib/
-dsh-browser/**/dist/
-dsh-browser/**/dist-firefox/
+# build artifacts
 **/coverage/
 *.tsbuildinfo
 
