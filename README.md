@@ -86,7 +86,7 @@ cd dsh-setup
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-OR
+Or
 
 ```powershell
 Set-Location -LiteralPath '仓库的本地克隆绝对地址'
