@@ -1,0 +1,61 @@
+# ============================================================================
+# dsh-persona-yeshunguang —— DSH bundle patch（挂载声明）
+# ============================================================================
+# 把人格插件插入 Web profile 的配置树。插件现在支持「多人设 + 按渠道分流」：
+#
+#   personas:
+#     - id: default            # 部署级人设：除下面被 preset 认领的会话之外，全部生效
+#       file: F:/AI/data/叶瞬光人设提示词-精简版.md
+#     - id: qq                 # 只对 agentPreset = qq-yinlang 的会话生效（即 QQ 机器人）
+#       role: qq               # 用于挑选默认文件（DSH_PERSONA_QQ_FILE）与日志可读性
+#       file: F:/AI/data/银狼人设提示词-QQ精简版.md
+#       presetIds: [qq-yinlang]
+#       suppressSections:      # 让角色看不到"自己是跑在 Harness/Web GUI 里的 AI"这些事实
+#         - harness:identity   #   "You are an AI agent powered by DeepSeek Harness."
+#         - harness:source     #   harness 源码 checkout 路径
+#         - app:web-surface    #   "…through the DeepSeek Harness Web GUI at http://127.0.0.1:3080"
+#       since: ">=0.1.5"
+#
+# 判定依据是会话头里的 `agentPreset`（DSH 会把它持久化在 session 头中），
+# 因此不需要识别渠道、不依赖 dsh-im 内部结构：在「设置 → IM机器人」里给 QQ 机器人
+# 选中 `qq-yinlang` 预设即可，其它会话（网页端、子代理）保持原样。
+#
+# suppressSections 是「角色不出戏」的关键：人设文本再强硬，也压不过官方那句
+# "You are an AI agent powered by DeepSeek Harness" —— 只能把该段整段摘掉。
+#
+# 热重载：人设文件按 mtime 自动重读（每次组装一次 statSync），改完 .md 保存即生效，
+# 不需要重启 dsh web。要冻结点启动时的内容，加 `reload: false`。
+#
+# 兼容：完全没有 `personas` 配置时，插件退化为旧行为 —— 只读一个
+# DSH_PERSONA_FILE（默认叶瞬光精简版），对所有会话生效。
+#
+# 安装：
+#   dsh plugin --profile web add link:<本目录绝对路径>
+# 卸载：
+#   dsh plugin --profile web remove dsh-persona-yeshunguang
+# 开关（二选一，在 profiles/web/cordis.patch.yml 里）：
+#   - id: dsh-persona-yeshunguang
+#     config:
+#       enabled: false
+# 或设置环境变量 DSH_PERSONA_ENABLED=0
+#
+# 改人设内容：直接改上面 `file:` 指向的 .md（第一次 ```text 代码块即人设正文），
+# 保存后下一次请求即生效（热重载）。
+# ============================================================================
+
+- insert:
+    - id: dsh-persona-yeshunguang
+      name: dsh-persona-yeshunguang
+      config:
+        personas:
+          - id: default
+            file: F:/AI/data/叶瞬光人设提示词-精简版.md
+          - id: qq
+            role: qq
+            presetIds:
+              - qq-yinlang
+            suppressSections:
+              - harness:identity
+              - harness:source
+              - app:web-surface
+            since: ">=0.1.5"

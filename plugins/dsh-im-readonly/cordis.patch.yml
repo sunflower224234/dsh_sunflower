@@ -1,0 +1,36 @@
+# ============================================================================
+# dsh-im-readonly —— DSH bundle patch（挂载声明）
+# ============================================================================
+# 把「IM 群聊只读」闸门插入 Web profile 的配置树。
+#
+#   stores  —— dsh-im 的会话绑定文件。QQ 渠道把
+#              `group:<groupOpenid>` / `c2c:<senderId>` 映射到 DSH session id，
+#              插件靠它判定一个会话是群聊还是单聊（不猜标题、不看路径）。
+#              接入第二个机器人时，在这里加一条即可（每个文件一条）。
+#   presetIds —— 可选，留空表示该 store 的所有会话都参与判定。
+#   readOnlyPreset —— 要施加的权限预设名，默认 read-only（内置于 dsh-base：
+#              sandbox=read-only + approval=ask）。
+#   unresolved —— 会话无法归类时怎么办。默认 read-only（宁可误锁不可误放）；
+#              设成 allow 则保持部署默认。
+#   includeSubagents —— 是否连子代理一并锁，默认 false。
+#   enabled —— 总开关，默认 true。
+#
+# 安装：
+#   dsh plugin --profile web add link:F:\AI\dsh-im-readonly
+#   （并把 dsh-im-readonly 加进 profiles/web/package.json 的 dsh.profile.bundles）
+# 卸载：
+#   dsh plugin --profile web remove dsh-im-readonly
+#
+# 改完需要重启 dsh web 生效（插件行配置在启动时读取）。
+# ============================================================================
+
+- insert:
+    - id: dsh-im-readonly
+      name: dsh-im-readonly
+      config:
+        readOnlyPreset: read-only
+        unresolved: read-only
+        includeSubagents: false
+        stores:
+          - id: qq
+            file: C:/Users/35756/.dsh/integrations/dsh-qq/bots/qq_7c58c106d9c54aa8a4cf2b70/state.json

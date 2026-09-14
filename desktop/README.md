@@ -38,20 +38,32 @@ start.bat
 
 ```
 assets/
-├─ icon-src.png              应用图标原图（1254×1254，圆角方图；源图在 新客户端/图标.png）
+├─ icon-src.png              应用图标原图（1254×1254，圆角方图）
 └─ backgrounds/              壁纸，每次启动随机挑一张（启动界面 + 主界面同一张）
-   ├─ bg-day-1.png           白天
-   ├─ bg-night-2.png         夜晚（启动界面自动用更轻的压暗）
-   ├─ bg-seaside.png         海边
-   ├─ bg-street.png          街头
-   └─ bg-street-2.png        街头 · 店门口
+   ├─ bg-day-1.webp           白天
+   ├─ bg-night-2.webp         夜晚（启动界面自动用更轻的压暗）
+   ├─ bg-seaside.webp         海边
+   ├─ bg-street.webp          街头
+   ├─ bg-street-2.webp        街头 · 店门口
+   ├─ bg-desk-day.webp        书桌 · 白天（阳光、鲸鱼抱枕）
+   ├─ bg-desk-night.webp      书桌 · 夜晚（城市夜景 + 显示器）
+   ├─ bg-riverside-dusk.webp  江边步道 · 黄昏（晚霞、路灯）
+   ├─ bg-matsuri.webp         夏日祭 · 烟花（浴衣、灯笼、鸟居）
+   ├─ bg-overlook.webp        山坡俯瞰海湾 · 入夜（湿润街道、大月亮）
+   └─ bg-summer-night.webp    夏日黄昏（自动贩卖机、远处花火大会）
 ```
 
-> 加图/删图都不用改代码：`main.js` 的 `pickBackground()` 每次启动现扫 `assets/backgrounds/`，
-> 随机取一张，并**避开上次用过的那张**（记录在 `%APPDATA%\dsh-desktop\window-state.json` 的
-> `lastBackground` 字段，所以重启进程后依然有效）。排除上一张后其余等概率 —— 仍是随机，
-> 只是不会出现「连着两次一模一样」；只有一张图时自然就选它。
-> 源素材放在 `新客户端/`，成品文件名统一改成 ASCII（`bg-*.png`）后再放进 `assets/backgrounds/`。
+> 共 **11 张 WebP**（1672×941），合计约 2.9MB。壁纸由 PNG 原图压成 WebP（quality 90），
+> 视觉上与原图难以区分，体积只有约 12%。
+>
+> 加图/删图都不用改代码：`main.js` 的 `pickBackground()` 每次启动现扫 `assets/backgrounds/`
+> （过滤 `png/jpg/webp`，`imageMime()` 会给出正确的 MIME），随机取一张，并**避开上次用过的那张**
+> （记录在 `%APPDATA%\dsh-desktop\window-state.json` 的 `lastBackground` 字段，所以重启进程后
+> 依然有效）。排除上一张后其余等概率 —— 仍是随机，只是不会出现「连着两次一模一样」；
+> 只有一张图时自然就选它。
+>
+> 文件名里带 `night` 的会被 `loading.html` 认成暗色调（`/night|夜晚/i`），启动界面对它用更轻的压暗；
+> 暗色壁纸命名时建议带上 `night`，亮色别带。
 
 自测：`node_modules\electron\dist\electron.exe --user-data-dir=%TEMP%\x .\test-background-pick.js`
 （12 项断言，含「不排除时确实会连着重复」的对照组，用来证明测试有区分力。）

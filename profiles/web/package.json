@@ -2,23 +2,27 @@
   "name": "dsh-profile-web",
   "private": true,
   "dependencies": {
-    "@linxin666/dsh-chat-recovery": "^0.2.9",
-    "@linxin666/dsh-client-ui-git-graph": "^0.2.9",
-    "@linxin666/dsh-client-ui-skill-explorer": "^0.2.9",
-    "@linxin666/dsh-client-ui-task-board": "^0.2.9",
-    "@linxin666/dsh-liangshen": "^0.2.9",
-    "@linxin666/dsh-remote-web-ui": "^0.2.9",
-    "@linxin666/dsh-ssh": "^0.2.9",
-    "@linxin666/dsh-tool-describe-image": "^0.2.9",
-    "@nanmicoder/dsh-agent-teams": "^0.1.8",
+    "@linxin666/dsh-chat-recovery": "^0.3.5",
+    "@linxin666/dsh-client-ui-git-graph": "^0.3.20",
+    "@linxin666/dsh-client-ui-skill-explorer": "^0.3.20",
+    "@linxin666/dsh-client-ui-task-board": "^0.3.20",
+    "@linxin666/dsh-liangshen": "^0.3.20",
+    "@linxin666/dsh-remote-web-ui": "^0.3.20",
+    "@linxin666/dsh-ssh": "^0.3.20",
+    "@linxin666/dsh-tool-describe-image": "^0.3.20",
+    "@nanmicoder/dsh-agent-teams": "^0.1.17",
+    "@xmanrui/dsh-im": "^4.19.2",
     "@yuxianglin/dsh-bridge-browser": "link:../../dsh-browser/packages/browser/bridge-browser",
-    "deepseek-harness-zh_pro": "^0.5.0",
+    "deepseek-harness-zh_pro": "^0.9.3",
     "dsh-any-background": "^0.1.9",
-    "dsh-better-sidebar": "0.15.1",
+    "dsh-better-sidebar": "0.19.0",
     "dsh-doc": "^0.1.1",
     "dsh-find-plugin": "^0.3.7",
+    "dsh-im-readonly": "link:../../plugins/dsh-im-readonly",
+    "dsh-persona-yeshunguang": "link:../../plugins/dsh-persona-yeshunguang",
+    "dsh-tts-voice": "link:../../plugins/dsh-tts-voice",
     "dsh-whale-widget": "link:./local-plugins/whale-widget",
-    "dshmarket": "^1.16.0"
+    "dshmarket": "^1.45.1"
   },
   "dsh": {
     "profile": {
@@ -41,7 +45,11 @@
         "@linxin666/dsh-ssh",
         "@linxin666/dsh-tool-describe-image",
         "dsh-find-plugin",
-        "@yuxianglin/dsh-bridge-browser"
+        "@yuxianglin/dsh-bridge-browser",
+        "dsh-tts-voice",
+        "dsh-persona-yeshunguang",
+        "dsh-im-readonly",
+        "@xmanrui/dsh-im"
       ]
     }
   }
