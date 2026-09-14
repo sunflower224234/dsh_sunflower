@@ -86,6 +86,17 @@ cd dsh-setup
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
+OR
+
+```powershell
+Set-Location -LiteralPath '仓库的本地克隆绝对地址'
+
+$repo = (Get-Location).Path
+$env:DSH_HOME = Join-Path $repo '.dsh'
+
+powershell -ExecutionPolicy Bypass -File (Join-Path $repo 'install.ps1') -DshHome $env:DSH_HOME
+```
+
 脚本共 6 步：检查前置工具 → 装 dsh（已装则跳过）→ 放置 `dsh-browser` / `plugins` / `profiles/web` 到 `$DSH_HOME` → 构建 `dsh-browser` → 安装 profile 依赖 → 把构建好的扩展复制到 `$DSH_HOME\browser-extension`。
 
 可用参数：
