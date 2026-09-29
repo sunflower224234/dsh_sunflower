@@ -22,6 +22,24 @@ Electron 桌面端（随机壁纸 · 窗口状态记忆 · 注入式标题栏）
 
 ---
 
+## 维护状态（2026-09-30）
+
+**作者本机已改用官方桌面端**（`@deepseek-ai/dsh-desktop` 0.2.0-rc.2，自带 Electron 外壳与内置 dsh 运行时）。
+本仓库的 [`desktop/`](desktop/) 自建外壳转为**存档参考** —— 代码仍然可用、仍按 MIT 分发，但不再跟随官方内核演进。
+
+<img src="screenshot-official-desktop.png" alt="改用官方桌面端后的界面" width="880">
+
+<sub>官方桌面端 + 本仓库的插件：侧栏（任务看板 / SSH / 技能中心 / 插件）、右侧任务面板、左下角余额挂件与语音开关</sub>
+
+> **迁移的只是「外壳」那一层。** 自建壳的路线是自己拉起 `dsh web` 后端、再套一个注入式标题栏的原生窗口；
+> 官方端已把外壳做进产品本身，于是这层不再需要。外壳之下的东西 —— `dsh` 内核、会话、凭据、插件、
+> QQ 机器人补丁 —— 与外壳无关，本仓库的 [`plugins/`](plugins/)、[`profiles/web/`](profiles/web/)、
+> [`qq-bot/`](qq-bot/) 照常可用。
+>
+> 自建壳原先的样子见 [`screenshot-dsh-ui.png`](screenshot-dsh-ui.png)（随机壁纸 + fairy 吉祥物 + 自绘标题栏）。
+
+---
+
 ## 仓库里有什么
 
 | 目录 | 是什么 | 是否必须装 | 文档 |
@@ -354,6 +372,26 @@ node agent/bridge/collab-smoke.mjs
 | **引用图片** | 手机 QQ 无法「图 + 文」同发时，群友先发图、再引用后 @她 —— 她能读到那张图 |
 | **权限控制** | 群聊里改文件类操作，只认群主批准；群友自己批准无效 |
 
+### 让机器人像个活人（分气泡 / 主动性 / 每日心境 / 人格升级）
+
+上面四件是**通道能力**（怎么把消息发出去）；下面四件是**人格工程**（让她不像客服，像群里一个真实的人）。
+
+| 文件 | 做什么 |
+|---|---|
+| [`apply-qq-break-patch.mjs`](qq-bot/apply-qq-break-patch.mjs) | **让 `[break]` 真的分气泡。** 人设要求用 `[break]` 把回复拆成 2~3 条短消息，但 `dsh-im` 任何版本都不解析这个标记（4.19.2 与 4.28.1 的 bundle 里都搜不到），一直原样发给用户。补丁只改一处：在 `chunkMarkdownParts` 函数体开头插入分片守卫，遇到 `[break]` 就递归切分。发送逻辑（`msg_seq` 递增、markdown 被拒回退纯文本、超长溢出提示）一行不动 |
+| [`silverwolf-life-state.mjs`](qq-bot/silverwolf-life-state.mjs) | **每天换一种心境。** 按日期哈希从 5 种状态里选一个（大版本更新·微暴躁 / 十连双金·得意 / 联机翻车·带刺 / 折腾键帽·手痒 / 挂机摸鱼·悠闲），再叠加当前时段的作息（凌晨补觉 / 中午挂机 / 下午摸鱼 / 夜晚攻坚）。导出 `getSilverwolfLifePrompt()` 供人设注入 |
+| [`proactive-silverwolf.mjs`](qq-bot/proactive-silverwolf.mjs) | **会主动找话题。** 按日期哈希从 14 条闲聊里选一句，在当天 18:00–22:00 之间的某个时刻投到群里，**一天最多一条**（状态文件去重）。配合计划任务每 30 分钟跑一次即可；`--preview` 可以只看当天会发什么而不真发 |
+| [`upgrade-silverwolf-persona.mjs`](qq-bot/upgrade-silverwolf-persona.mjs) | **人格升级脚本。** 对源人设做四处精确替换：说话风格去掉口头禅套路、聊天节奏不再固定三段式、few-shot 从「复读原句」改成「学反应方式」、新增「银狼自己的生活与连续性」章节。输出候选文件供人工审核 |
+
+> **为什么用日期哈希而不是 `Math.random()`**：同一天里反复运行结果稳定 —— 不会刷新一次就换一个心情，
+> 换一天才换。这是「连续性」的前提，也是人设里「已经说过的事保持一致」能成立的原因。
+>
+> `apply-qq-break-patch.mjs` 沿用本目录的补丁规范：锚点唯一性校验 → 应用 → 7 项复检 → 自动备份，
+> 任一项不过就**不写文件**；`--revert` 从 `qq-bot/backup/` 恢复。
+>
+> `proactive-silverwolf.mjs` 要求 `$DSH_HOME/integrations/dsh-qq/workspaces.json` 里**恰好一个群投递目标**，
+> 多于一个会直接报错退出（避免误把私聊也算进去）；接口地址可用 `DSH_IM_ORIGIN` 覆盖（默认 `http://127.0.0.1:3080`）。
+
 ### 前置认知（踩过的坑，省得你重踩）
 
 - **QQ 官方只接受 `file_type=3` 上传富媒体，但 wav 可以直接发**，不需要 silk 转码。
@@ -376,6 +414,10 @@ qq-bot/
 ├── compact-context-guidance.mjs     # 精简增强提示词（197 → 80 tokens/条）
 ├── silverwolf-tts.mjs               # 调本地 GPT-SoVITS 合成 wav
 ├── start-tts-service.mjs            # TTS 常驻启动器（轮询端口判就绪，比官方脚本可靠）
+├── apply-qq-break-patch.mjs         # 分气泡：让 [break] 真的拆成多条消息
+├── silverwolf-life-state.mjs        # 每日心境 + 时段作息（注入人设）
+├── proactive-silverwolf.mjs         # 主动找话题（一天最多一条）
+├── upgrade-silverwolf-persona.mjs   # 人格升级脚本（输出候选供人工审核）
 ├── persona-银狼.md                  # 群机器人人设（含语音触发与权限规则）
 └── probe-*.mjs / *-session-*.mjs    # 诊断：验证通道、读会话事件
 ```
